@@ -1,0 +1,510 @@
+from __future__ import annotations
+
+import json
+import logging
+import os
+import urllib.error
+import urllib.parse
+import urllib.request
+from dataclasses import dataclass, field
+from typing import Any
+
+
+logger = logging.getLogger("sachlens.gemini")
+
+
+class GeminiExplanationError(RuntimeError):
+    pass
+
+
+class GeminiGroundingUnavailableError(GeminiExplanationError):
+    """Raised when search grounding fails (billing, quota, unsupported model)."""
+    pass
+
+
+@dataclass(frozen=True)
+class ExplanationResult:
+    percentage: int
+    verdict: str
+    explanation: list[str]
+    corrected_info: str | None
+    sources: list[dict[str, str]] = field(default_factory=list)
+    grounded: bool = False
+
+
+class GeminiExplainer:
+    def __init__(self) -> None:
+        self.api_key = (os.getenv("GEMINI_API_KEY") or "").strip()
+        self.model = (os.getenv("GEMINI_MODEL") or "gemini-3.5-flash-lite").strip()
+        self.api_version = (os.getenv("GEMINI_API_VERSION") or "v1beta").strip()
+        self.fact_check_api_key = (os.getenv("GOOGLE_FACTCHECK_API_KEY") or "").strip()
+        self.tavily_api_key = (os.getenv("TAVILY_API_KEY") or "").strip()
+
+    def ensure_configured(self) -> None:
+        if not self.api_key:
+            raise GeminiExplanationError("GEMINI_API_KEY is not configured")
+
+    def explain(self, text: str, classifier_signal: dict[str, Any]) -> ExplanationResult:
+        self.ensure_configured()
+
+        # --- Pre-step 1: Tavily web search for real-time grounding ---
+        tavily_results = self._search_tavily(text)
+        grounded = len(tavily_results) > 0
+        sources: list[dict[str, str]] = [
+            {"title": r.get("title", ""), "url": r.get("url", "")}
+            for r in tavily_results if r.get("url")
+        ]
+        if grounded:
+            logger.info("Tavily search returned %d results for grounding", len(tavily_results))
+        else:
+            logger.info("Tavily search returned no results — proceeding without grounding")
+
+        # --- Pre-step 2: query Fact Check Tools API for existing verdicts ---
+        fact_check_results = self._query_fact_check_api(text)
+
+        # --- Build prompt with Tavily context injected ---
+        prompt = self._build_prompt(
+            text, classifier_signal,
+            fact_check_results=fact_check_results,
+            web_search_results=tavily_results,
+        )
+
+        # --- Gemini call (no native grounding tool needed — Tavily provides context) ---
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.2},
+        }
+        raw = self._request_with_fallback(
+            json.dumps(payload).encode("utf-8"),
+            grounding_active=False,
+        )
+        response_payload = json.loads(raw)
+
+        logger.info("Gemini raw response: %s", response_payload)
+        text_output = self._extract_text_output(response_payload)
+        parsed = self._parse_response_json(text_output)
+        first_pass = self._validate_response(parsed, sources=sources, grounded=grounded)
+
+        # --- Self-verification second pass ---
+        verified = self._self_verify(first_pass, text, sources)
+        if verified is not None:
+            return verified
+        return first_pass
+
+    def _search_tavily(self, query: str) -> list[dict[str, Any]]:
+        """Search the web using Tavily API for real-time grounding context.
+
+        Returns a list of result dicts with keys: title, url, content.
+        Returns [] on any failure so the caller can fall back gracefully.
+        """
+        if not self.tavily_api_key:
+            logger.info("TAVILY_API_KEY not configured — skipping web search grounding")
+            return []
+
+        payload = {
+            "api_key": self.tavily_api_key,
+            "query": query[:400],  # Tavily query limit
+            "search_depth": "basic",
+            "max_results": 5,
+            "include_answer": False,
+        }
+
+        try:
+            req = urllib.request.Request(
+                "https://api.tavily.com/search",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data = json.loads(response.read().decode("utf-8"))
+
+            results = data.get("results", [])
+            logger.info(
+                "Tavily search succeeded: %d results for query=%s",
+                len(results), query[:80],
+            )
+            return results
+
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode("utf-8", errors="ignore") if e.fp else ""
+            logger.warning(
+                "Tavily search HTTP error: status=%s body=%s — proceeding without web grounding",
+                e.code, error_body[:300],
+            )
+            return []
+        except Exception as e:
+            logger.warning(
+                "Tavily search failed: %s — proceeding without web grounding", e,
+            )
+            return []
+
+    def _request_with_fallback(
+        self, request_body: bytes, *, grounding_active: bool = False
+    ) -> str:
+        models_to_try: list[str] = []
+        for model_name in [self.model, "gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"]:
+            normalized = model_name.strip()
+            if normalized and normalized not in models_to_try:
+                models_to_try.append(normalized)
+
+        last_error: Exception | None = None
+        for model_name in models_to_try:
+            request_url = (
+                f"https://generativelanguage.googleapis.com/{self.api_version}/models/{model_name}:generateContent"
+                f"?key={self.api_key}"
+            )
+            logger.info("Calling Gemini API endpoint: %s (grounding=%s)", request_url.split("?")[0], grounding_active)
+            logger.info("Gemini request payload: %s", request_body.decode("utf-8"))
+            try:
+                req = urllib.request.Request(
+                    request_url,
+                    data=request_body,
+                    method="POST",
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(req, timeout=30) as response:
+                    return response.read().decode("utf-8")
+            except urllib.error.HTTPError as error:
+                error_body = error.read().decode("utf-8", errors="ignore") if error.fp else ""
+                logger.error(
+                    "GEMINI API GROUNDING ATTEMPT FAILED -> model=%s status_code=%s full_error_body=\n%s",
+                    model_name, error.code, error_body,
+                )
+                last_error = error
+
+                # If grounding is active and we got a billing/permission/quota error,
+                # raise a specific exception so the caller can log and fall back to non-grounded.
+                if grounding_active and error.code in (400, 403, 429):
+                    raise GeminiGroundingUnavailableError(
+                        f"Grounding failed with HTTP {error.code}: {error_body}"
+                    ) from error
+
+                if error.code == 404:
+                    continue
+                break
+            except Exception as error:
+                logger.exception("Gemini API request failed for model=%s", model_name)
+                last_error = error
+                break
+
+        raise GeminiExplanationError("Gemini API request failed for all configured models") from last_error
+
+    def _self_verify(
+        self,
+        first_pass: ExplanationResult,
+        original_claim: str,
+        sources: list[dict[str, str]],
+    ) -> ExplanationResult | None:
+        """Send the first-pass answer back to Gemini for critical self-verification.
+
+        Returns a revised ExplanationResult, or None if verification couldn't run
+        (e.g. 429 rate limit), in which case the caller should use the first pass.
+        """
+        import datetime
+        current_date = datetime.datetime.now().strftime("%Y-%m-%d")
+
+        sources_text = ""
+        if sources:
+            source_lines = [f"  - {s.get('title', '?')}: {s.get('url', '?')}" for s in sources]
+            sources_text = "\nGrounding sources used:\n" + "\n".join(source_lines)
+
+        verify_prompt = (
+            f"Current Date: {current_date}\n"
+            "You are a critical fact-check reviewer. A fact-check assistant produced the following "
+            "draft analysis. Your job is to critically re-examine it and revise if needed.\n\n"
+            f"Original claim: \"{original_claim}\"\n\n"
+            f"Draft analysis:\n"
+            f"  percentage: {first_pass.percentage}\n"
+            f"  verdict: {first_pass.verdict}\n"
+            f"  explanation: {json.dumps(first_pass.explanation)}\n"
+            f"  corrected_info: {first_pass.corrected_info}\n"
+            f"{sources_text}\n\n"
+            "Critically re-examine this:\n"
+            "- Are the sources actually relevant and reliable?\n"
+            "- FOR IPL 2026 AND UNDECIDED EVENTS: The IPL 2026 tournament has NOT taken place or concluded yet. The winner of IPL 2026 is not yet decided. If the draft states that IPL 2026 has not taken place yet or the winner is undecided, PRESERVE that statement. Do NOT claim the tournament concluded in March-May.\n"
+            "- If the sources are weak, conflicting, or absent, and you aren't genuinely confident, "
+            "change the verdict to INSUFFICIENT_EVIDENCE with percentage 50.\n\n"
+            "Output ONLY the revised JSON with the same schema:\n"
+            "{\n"
+            '  "percentage": <integer 0-100>,\n'
+            '  "verdict": <"LIKELY_REAL" | "LIKELY_FAKE" | "NEEDS_REVIEW" | "INSUFFICIENT_EVIDENCE">,\n'
+            '  "explanation": <array of 2-5 short bullet-style strings>,\n'
+            '  "corrected_info": <string or null>\n'
+            "}\n"
+            "- No markdown. No backticks. JSON only.\n"
+        )
+
+        verify_payload = {
+            "contents": [{"parts": [{"text": verify_prompt}]}],
+            "generationConfig": {"temperature": 0.1},
+        }
+
+        try:
+            raw = self._request_with_fallback(
+                json.dumps(verify_payload).encode("utf-8"),
+                grounding_active=False,
+            )
+        except (GeminiExplanationError, GeminiGroundingUnavailableError) as err:
+            logger.warning("Self-verification call failed (%s) — using first-pass result", err)
+            return None
+
+        try:
+            response_payload = json.loads(raw)
+            text_output = self._extract_text_output(response_payload)
+            parsed = self._parse_response_json(text_output)
+            verified = self._validate_response(
+                parsed,
+                sources=first_pass.sources,
+                grounded=first_pass.grounded,
+            )
+        except (GeminiExplanationError, json.JSONDecodeError) as err:
+            logger.warning("Self-verification parse failed (%s) — using first-pass result", err)
+            return None
+
+        # Log whether the self-verification changed anything
+        changed = (
+            verified.percentage != first_pass.percentage
+            or verified.verdict != first_pass.verdict
+        )
+        logger.info(
+            "Self-verification %s the answer (first: %d/%s → final: %d/%s)",
+            "CHANGED" if changed else "CONFIRMED",
+            first_pass.percentage, first_pass.verdict,
+            verified.percentage, verified.verdict,
+        )
+        return verified
+
+    def _query_fact_check_api(self, claim_text: str) -> list[dict[str, str]]:
+        """Query Google Fact Check Tools API for existing ClaimReview results."""
+        if not self.fact_check_api_key:
+            logger.info("GOOGLE_FACTCHECK_API_KEY not configured — skipping Fact Check API")
+            return []
+
+        encoded_query = urllib.parse.quote(claim_text[:200], safe="")
+        url = (
+            f"https://factchecktools.googleapis.com/v1alpha1/claims:search"
+            f"?query={encoded_query}&languageCode=en&pageSize=5"
+            f"&key={self.fact_check_api_key}"
+        )
+        try:
+            req = urllib.request.Request(url, method="GET")
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except Exception as e:
+            logger.warning("Fact Check API call failed: %s", e)
+            return []
+
+        results: list[dict[str, str]] = []
+        claims = data.get("claims", [])
+        if not isinstance(claims, list):
+            return results
+
+        for claim in claims[:3]:  # top 3 most relevant
+            claim_text_found = claim.get("text", "")
+            reviews = claim.get("claimReview", [])
+            if not isinstance(reviews, list):
+                continue
+            for review in reviews[:1]:  # first review per claim
+                results.append({
+                    "claim": claim_text_found,
+                    "publisher": review.get("publisher", {}).get("name", "Unknown"),
+                    "rating": review.get("textualRating", "Unknown"),
+                    "url": review.get("url", ""),
+                    "title": review.get("title", ""),
+                })
+
+        logger.info("Fact Check API returned %d results for claim", len(results))
+        return results
+
+    def _build_prompt(
+        self,
+        text: str,
+        classifier_signal: dict[str, Any],
+        *,
+        fact_check_results: list[dict[str, str]] | None = None,
+        web_search_results: list[dict[str, Any]] | None = None,
+    ) -> str:
+        import datetime
+        current_date = datetime.datetime.now().strftime("%Y-%m-%d")
+
+        # --- Web search context from Tavily ---
+        web_search_section = ""
+        if web_search_results:
+            lines = ["\n--- LIVE WEB SEARCH RESULTS (retrieved just now) ---"]
+            for i, r in enumerate(web_search_results, 1):
+                lines.append(
+                    f"{i}. [{r.get('title', 'Untitled')}]({r.get('url', '')})\n"
+                    f"   {r.get('content', '')[:300]}"
+                )
+            lines.append(
+                "\n--- END OF WEB SEARCH RESULTS ---\n"
+                "IMPORTANT: You have REAL, CURRENT web search results above. "
+                "Use this information to ground your analysis. "
+                "Do NOT say 'I don't have live access' or 'I cannot verify this in real-time' — "
+                "you have real search results right here. "
+                "If the search results don't contain relevant info for the claim, say so specifically "
+                "(e.g. 'search results did not contain information about X') rather than giving a generic disclaimer.\n"
+            )
+            web_search_section = "\n".join(lines)
+
+        # --- Fact check API results ---
+        fact_check_section = ""
+        if fact_check_results:
+            lines = ["\nExisting fact-check verdicts from professional fact-checkers:"]
+            for fc in fact_check_results:
+                lines.append(
+                    f"- {fc.get('publisher', '?')}: \"{fc.get('claim', '?')}\" → {fc.get('rating', '?')}"
+                    f" (source: {fc.get('url', 'N/A')})"
+                )
+            lines.append(
+                "Give strong weight to these professional fact-checker verdicts when determining your answer.\n"
+            )
+            fact_check_section = "\n".join(lines)
+
+        return (
+            f"Current Date: {current_date}\n"
+            "You are a factual verification assistant.\n"
+            "Analyze the user claim and output ONLY valid JSON with this exact schema:\n"
+            "{\n"
+            '  "percentage": <integer 0-100>,\n'
+            '  "verdict": <"LIKELY_REAL" | "LIKELY_FAKE" | "NEEDS_REVIEW" | "INSUFFICIENT_EVIDENCE">,\n'
+            '  "explanation": <array of 2-5 short bullet-style strings>,\n'
+            '  "corrected_info": <string or null>\n'
+            "}\n\n"
+            "Rules:\n"
+            "- If claim is factually wrong, set corrected_info with concise corrected fact.\n"
+            "- If the evidence is weak, conflicting, or absent and you are NOT genuinely confident, "
+            "use verdict INSUFFICIENT_EVIDENCE with percentage 50 and explain what is missing or unclear. "
+            "Do NOT guess or force a percentage — honest uncertainty is better than a fabricated score.\n"
+            "- If you have some evidence but it's mixed, use NEEDS_REVIEW with corrected_info null.\n"
+            "- No markdown. No backticks. JSON only.\n"
+            f"{web_search_section}"
+            f"{fact_check_section}\n"
+            f"User claim: {text}\n"
+            f"Classifier signal (for context only): {json.dumps(classifier_signal)}\n"
+        )
+
+    def _extract_text_output(self, payload: dict[str, Any]) -> str:
+        candidates = payload.get("candidates")
+        if not isinstance(candidates, list) or not candidates:
+            raise GeminiExplanationError("Gemini returned no candidates")
+
+        first = candidates[0]
+        content = first.get("content", {})
+        parts = content.get("parts", [])
+        texts: list[str] = []
+        if isinstance(parts, list):
+            for part in parts:
+                if isinstance(part, dict):
+                    part_text = part.get("text")
+                    if isinstance(part_text, str):
+                        texts.append(part_text)
+        if not texts:
+            raise GeminiExplanationError("Gemini returned no text content")
+        return "\n".join(texts).strip()
+
+    def _extract_grounding_sources(self, payload: dict[str, Any]) -> list[dict[str, str]]:
+        """Extract grounding source citations from the Gemini response."""
+        sources: list[dict[str, str]] = []
+        candidates = payload.get("candidates")
+        if not isinstance(candidates, list) or not candidates:
+            return sources
+
+        first = candidates[0]
+        grounding_metadata = first.get("groundingMetadata", {})
+        if not isinstance(grounding_metadata, dict):
+            return sources
+
+        # Extract from groundingChunks (primary source list)
+        chunks = grounding_metadata.get("groundingChunks", [])
+        if isinstance(chunks, list):
+            for chunk in chunks:
+                if isinstance(chunk, dict):
+                    web = chunk.get("web", {})
+                    if isinstance(web, dict):
+                        uri = web.get("uri", "")
+                        title = web.get("title", "")
+                        if uri:
+                            sources.append({"url": uri, "title": title or uri})
+
+        # Also check groundingSupports for more detailed attribution
+        supports = grounding_metadata.get("groundingSupports", [])
+        if isinstance(supports, list):
+            for support in supports:
+                if isinstance(support, dict):
+                    segment = support.get("segment", {})
+                    indices = support.get("groundingChunkIndices", [])
+                    # These reference the chunks above — already captured
+
+        # Deduplicate by URL
+        seen_urls: set[str] = set()
+        unique_sources: list[dict[str, str]] = []
+        for src in sources:
+            if src["url"] not in seen_urls:
+                seen_urls.add(src["url"])
+                unique_sources.append(src)
+
+        return unique_sources
+
+    def _parse_response_json(self, output: str) -> dict[str, Any]:
+        cleaned = output.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.strip("`")
+            cleaned = cleaned.replace("json", "", 1).strip()
+        try:
+            parsed = json.loads(cleaned)
+        except json.JSONDecodeError as error:
+            raise GeminiExplanationError("Gemini returned invalid JSON") from error
+        if not isinstance(parsed, dict):
+            raise GeminiExplanationError("Gemini response JSON must be an object")
+        return parsed
+
+    def _validate_response(
+        self,
+        payload: dict[str, Any],
+        *,
+        sources: list[dict[str, str]] | None = None,
+        grounded: bool = False,
+    ) -> ExplanationResult:
+        percentage_raw = payload.get("percentage")
+        verdict_raw = payload.get("verdict")
+        explanation_raw = payload.get("explanation")
+        corrected_info_raw = payload.get("corrected_info")
+
+        try:
+            percentage = int(percentage_raw)
+        except (TypeError, ValueError) as error:
+            raise GeminiExplanationError("Gemini percentage is invalid") from error
+        percentage = max(0, min(100, percentage))
+
+        if not isinstance(verdict_raw, str) or not verdict_raw.strip():
+            raise GeminiExplanationError("Gemini verdict is invalid")
+        verdict = verdict_raw.strip().upper().replace(" ", "_")
+
+        if not isinstance(explanation_raw, list):
+            raise GeminiExplanationError("Gemini explanation must be a list")
+        explanation: list[str] = []
+        for item in explanation_raw:
+            if isinstance(item, str):
+                text = item.strip()
+                if text:
+                    explanation.append(text)
+        if not explanation:
+            raise GeminiExplanationError("Gemini explanation list is empty")
+
+        corrected_info: str | None
+        if corrected_info_raw is None:
+            corrected_info = None
+        elif isinstance(corrected_info_raw, str) and corrected_info_raw.strip():
+            corrected_info = corrected_info_raw.strip()
+        else:
+            corrected_info = None
+
+        return ExplanationResult(
+            percentage=percentage,
+            verdict=verdict,
+            explanation=explanation,
+            corrected_info=corrected_info,
+            sources=sources or [],
+            grounded=grounded,
+        )

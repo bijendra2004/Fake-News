@@ -1,0 +1,30 @@
+# Environment secrets
+.env
+.env.*
+!.env.example
+
+# Node
+node_modules/
+dist/
+
+# Python
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Upload/temp/runtime artifacts
+uploads/
+*.db
+
+# ML artifacts (keep large models out of git)
+*.joblib
+*.pkl
+*.pt
+*.onnx
+.env
+.venv/
+.env
+.env
