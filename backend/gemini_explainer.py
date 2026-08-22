@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -40,8 +41,21 @@ class GeminiExplainer:
         self.fact_check_api_key = (os.getenv("GOOGLE_FACTCHECK_API_KEY") or "").strip()
         self.tavily_api_key = (os.getenv("TAVILY_API_KEY") or "").strip()
 
+        # Groq provider config
+        self.llm_provider = (os.getenv("LLM_PROVIDER") or "gemini").strip().lower()
+        self.groq_api_key = (os.getenv("GROQ_API_KEY") or "").strip()
+        self.groq_model = (os.getenv("GROQ_MODEL") or "qwen/qwen3.6-27b").strip()
+
+        logger.info(
+            "LLM provider=%s, groq_model=%s, gemini_model=%s",
+            self.llm_provider, self.groq_model, self.model,
+        )
+
     def ensure_configured(self) -> None:
-        if not self.api_key:
+        if self.llm_provider == "groq":
+            if not self.groq_api_key:
+                raise GeminiExplanationError("GROQ_API_KEY is not configured but LLM_PROVIDER=groq")
+        elif not self.api_key:
             raise GeminiExplanationError("GEMINI_API_KEY is not configured")
 
     def explain(self, text: str, classifier_signal: dict[str, Any]) -> ExplanationResult:
@@ -69,19 +83,10 @@ class GeminiExplainer:
             web_search_results=tavily_results,
         )
 
-        # --- Gemini call (no native grounding tool needed — Tavily provides context) ---
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0.2},
-        }
-        raw = self._request_with_fallback(
-            json.dumps(payload).encode("utf-8"),
-            grounding_active=False,
-        )
-        response_payload = json.loads(raw)
+        # --- LLM call (provider-agnostic — Tavily provides grounding context) ---
+        text_output = self._call_llm(prompt, temperature=0.2)
 
-        logger.info("Gemini raw response: %s", response_payload)
-        text_output = self._extract_text_output(response_payload)
+        logger.info("LLM raw text output: %s", text_output[:500])
         parsed = self._parse_response_json(text_output)
         first_pass = self._validate_response(parsed, sources=sources, grounded=grounded)
 
@@ -137,6 +142,93 @@ class GeminiExplainer:
                 "Tavily search failed: %s — proceeding without web grounding", e,
             )
             return []
+
+    def _call_llm(self, prompt: str, *, temperature: float = 0.2) -> str:
+        """Route LLM call to the configured provider and return raw text output."""
+        if self.llm_provider == "groq":
+            return self._call_groq(prompt, temperature=temperature)
+        else:
+            # Gemini path
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"temperature": temperature},
+            }
+            raw = self._request_with_fallback(
+                json.dumps(payload).encode("utf-8"),
+                grounding_active=False,
+            )
+            response_payload = json.loads(raw)
+            return self._extract_text_output(response_payload)
+
+    def _call_groq(self, prompt: str, *, temperature: float = 0.2) -> str:
+        """Call Groq's OpenAI-compatible chat completions API.
+
+        Returns the raw text content from the assistant message.
+        Raises GeminiExplanationError on failure.
+        """
+        payload = {
+            "model": self.groq_model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a factual verification assistant. "
+                        "Output ONLY valid JSON. No markdown, no backticks, no thinking text, no preamble. "
+                        "Start your response directly with the opening { brace."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": temperature,
+            "max_tokens": 4096,
+        }
+
+        logger.info("Calling Groq API: model=%s", self.groq_model)
+
+        import time as _time
+        last_error: Exception | None = None
+
+        for attempt in range(3):
+            try:
+                req = urllib.request.Request(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {self.groq_api_key}",
+                        "User-Agent": "SachLens/1.0",
+                    },
+                )
+                with urllib.request.urlopen(req, timeout=45) as response:
+                    data = json.loads(response.read().decode("utf-8"))
+
+                content = data["choices"][0]["message"]["content"]
+                logger.info("Groq API succeeded (attempt %d), response length=%d", attempt + 1, len(content))
+                return content
+
+            except urllib.error.HTTPError as e:
+                error_body = e.read().decode("utf-8", errors="ignore") if e.fp else ""
+                logger.error(
+                    "Groq API failed: status=%s body=%s", e.code, error_body[:300],
+                )
+                if e.code == 429:
+                    raise GeminiExplanationError(
+                        "Groq rate limit exceeded — please try again in a minute"
+                    ) from e
+                raise GeminiExplanationError(
+                    f"Groq API error (HTTP {e.code}): {error_body[:200]}"
+                ) from e
+            except (TimeoutError, OSError) as e:
+                last_error = e
+                logger.warning("Groq API timeout (attempt %d/3): %s", attempt + 1, e)
+                if attempt < 2:
+                    _time.sleep(2)
+                continue
+            except Exception as e:
+                logger.exception("Groq API request failed")
+                raise GeminiExplanationError(f"Groq API request failed: {e}") from e
+
+        raise GeminiExplanationError(f"Groq API request failed after 3 attempts: {last_error}") from last_error
 
     def _request_with_fallback(
         self, request_body: bytes, *, grounding_active: bool = False
@@ -234,23 +326,13 @@ class GeminiExplainer:
             "- No markdown. No backticks. JSON only.\n"
         )
 
-        verify_payload = {
-            "contents": [{"parts": [{"text": verify_prompt}]}],
-            "generationConfig": {"temperature": 0.1},
-        }
-
         try:
-            raw = self._request_with_fallback(
-                json.dumps(verify_payload).encode("utf-8"),
-                grounding_active=False,
-            )
+            text_output = self._call_llm(verify_prompt, temperature=0.1)
         except (GeminiExplanationError, GeminiGroundingUnavailableError) as err:
             logger.warning("Self-verification call failed (%s) — using first-pass result", err)
             return None
 
         try:
-            response_payload = json.loads(raw)
-            text_output = self._extract_text_output(response_payload)
             parsed = self._parse_response_json(text_output)
             verified = self._validate_response(
                 parsed,
@@ -448,15 +530,29 @@ class GeminiExplainer:
 
     def _parse_response_json(self, output: str) -> dict[str, Any]:
         cleaned = output.strip()
+
+        # Strip <think>...</think> blocks (Qwen/reasoning models)
+        cleaned = re.sub(r"<think>.*?</think>", "", cleaned, flags=re.DOTALL).strip()
+
+        # Strip markdown code fences
         if cleaned.startswith("```"):
             cleaned = cleaned.strip("`")
             cleaned = cleaned.replace("json", "", 1).strip()
+
+        # Try to extract JSON object if there's surrounding text
+        if not cleaned.startswith("{"):
+            match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
+            if match:
+                cleaned = match.group(0)
+
         try:
             parsed = json.loads(cleaned)
         except json.JSONDecodeError as error:
-            raise GeminiExplanationError("Gemini returned invalid JSON") from error
+            raise GeminiExplanationError(
+                f"LLM returned invalid JSON: {cleaned[:200]}"
+            ) from error
         if not isinstance(parsed, dict):
-            raise GeminiExplanationError("Gemini response JSON must be an object")
+            raise GeminiExplanationError("LLM response JSON must be an object")
         return parsed
 
     def _validate_response(
