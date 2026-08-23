@@ -90,6 +90,9 @@ app = FastAPI(
     title="SachLens API",
     version="0.2.0",
     debug=(not _is_production and os.getenv("APP_DEBUG", "false").lower() in {"1", "true", "yes", "on"}),
+    docs_url=None if _is_production else "/docs",
+    redoc_url=None if _is_production else "/redoc",
+    openapi_url=None if _is_production else "/openapi.json",
 )
 
 prediction_service = PredictionService()
