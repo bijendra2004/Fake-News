@@ -19,3 +19,4 @@ pytesseract==0.3.13
 beautifulsoup4==4.15.0
 readability-lxml==0.8.4.1
 faster-whisper==1.2.1
+requests==2.32.3
