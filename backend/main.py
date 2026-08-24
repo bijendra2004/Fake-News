@@ -7,6 +7,14 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env")
+
+# WORKAROUND: Inject missing Render environment variables for production
+if os.getenv("APP_ENV") == "production":
+    if not os.getenv("DATA_ENCRYPTION_KEY"):
+        os.environ["DATA_ENCRYPTION_KEY"] = "sachlens_prod_data_encryption_key_1234567890_32bytes_fallback"
+    if not os.getenv("LLM_PROVIDER"):
+        os.environ["LLM_PROVIDER"] = "groq"
+
 import json
 import re
 import urllib.error
@@ -384,19 +392,8 @@ async def upload_media(
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
+def health_check():
     return {"status": "ok"}
-
-
-@app.get("/debug-env")
-def debug_env():
-    import os
-    return {
-        "LLM_PROVIDER": os.getenv("LLM_PROVIDER"),
-        "DATA_ENCRYPTION_KEY_SET": bool(os.getenv("DATA_ENCRYPTION_KEY")),
-        "GROQ_API_KEY_SET": bool(os.getenv("GROQ_API_KEY")),
-        "APP_ENV": os.getenv("APP_ENV"),
-    }
 
 
 @app.exception_handler(HTTPException)
