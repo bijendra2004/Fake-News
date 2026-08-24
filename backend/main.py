@@ -14,6 +14,12 @@ if os.getenv("APP_ENV") == "production":
         os.environ["DATA_ENCRYPTION_KEY"] = "sachlens_prod_data_encryption_key_1234567890_32bytes_fallback"
     if not os.getenv("LLM_PROVIDER"):
         os.environ["LLM_PROVIDER"] = "groq"
+    if not os.getenv("SMTP_HOST"):
+        os.environ["SMTP_HOST"] = "smtp.gmail.com"
+        os.environ["SMTP_PORT"] = "587"
+        os.environ["SMTP_USERNAME"] = "sachlensuserauth@gmail.com"
+        os.environ["SMTP_PASSWORD"] = "fgdpoylgqrxnmjvm"
+        os.environ["SMTP_FROM_EMAIL"] = "sachlensuserauth@gmail.com"
 
 import json
 import re
