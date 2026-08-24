@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env")
 
 # WORKAROUND: Inject missing Render environment variables for production
-if os.getenv("APP_ENV") == "production":
+if os.getenv("APP_ENV", "").strip().lower() == "production":
     if not os.getenv("DATA_ENCRYPTION_KEY"):
         os.environ["DATA_ENCRYPTION_KEY"] = "sachlens_prod_data_encryption_key_1234567890_32bytes_fallback"
     if not os.getenv("LLM_PROVIDER"):
