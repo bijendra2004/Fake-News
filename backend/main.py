@@ -388,6 +388,17 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/debug-env")
+def debug_env():
+    import os
+    return {
+        "LLM_PROVIDER": os.getenv("LLM_PROVIDER"),
+        "DATA_ENCRYPTION_KEY_SET": bool(os.getenv("DATA_ENCRYPTION_KEY")),
+        "GROQ_API_KEY_SET": bool(os.getenv("GROQ_API_KEY")),
+        "APP_ENV": os.getenv("APP_ENV"),
+    }
+
+
 @app.exception_handler(HTTPException)
 def http_exception_handler(_: Request, exc: HTTPException):
     return JSONResponse(status_code=exc.status_code, content=format_http_error(exc))
