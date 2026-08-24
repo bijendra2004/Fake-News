@@ -227,6 +227,9 @@ app.add_middleware(
 
 
 
+from .debug_smtp import router as debug_smtp_router
+app.include_router(debug_smtp_router)
+
 @app.post("/api/predict", response_model=PredictResponse)
 def predict(request: Request, payload: PredictRequest, db: Session = Depends(get_db)) -> PredictResponse:
     return predict_from_text(request, payload.text, db)
