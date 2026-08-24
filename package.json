@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "postinstall": "rm -rf .test_venv .venv",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
