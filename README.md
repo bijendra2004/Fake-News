@@ -136,3 +136,4 @@ The first request after idle can be slower. This is expected behavior, not a bug
 - `node_modules/` and `__pycache__/` are git-ignored.
 - Model binaries are git-ignored (`*.joblib`, `*.pkl`, `*.pt`, `*.onnx`).
 - If you later need to store model files over ~50MB, use Git LFS or a separate model download/build step in CI/deploy.
+
