@@ -193,4 +193,4 @@ def hash_value(email: str, value: str) -> str:
 
 
 def utcnow() -> datetime:
-    return datetime.utcnow()
+    return datetime.now(timezone.utc)
