@@ -253,7 +253,7 @@ def debug_email():
         req = urllib.request.Request(
             "https://api.resend.com/emails",
             data=payload,
-            headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+            headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json", "User-Agent": "SachLens/1.0"},
             method="POST",
         )
         try:

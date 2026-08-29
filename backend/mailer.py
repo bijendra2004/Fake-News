@@ -76,6 +76,7 @@ def _send_via_resend(email: str, otp: str, expires_minutes: int, api_key: str) -
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
+            "User-Agent": "SachLens/1.0",
         },
         method="POST",
     )
