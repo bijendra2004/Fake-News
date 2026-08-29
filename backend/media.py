@@ -227,59 +227,53 @@ def transcribe_audio_file(audio_path: Path) -> str:
 def extract_text_from_url(raw_url: str) -> ExtractedPageText:
     """Extract article or post text from a URL.
 
-    For social media / dynamic sites (Instagram, Twitter, etc.), uses Tavily search
-    and Open Graph metadata to get the actual post content instead of login/footer walls.
+    Uses social media crawler headers (which causes Instagram, Twitter, Facebook, etc.
+    to return server-rendered post captions in Open Graph metadata) and Readability for news articles.
     """
+    import html as html_module
+
     parsed = validate_public_http_url(raw_url)
     hostname = (parsed.hostname or "").lower()
     is_dynamic_site = any(hostname == d or hostname.endswith("." + d) for d in _DYNAMIC_DOMAINS)
 
-    # 1. For social media / dynamic links, query Tavily directly for indexed post content
-    if is_dynamic_site:
-        tavily_text = _search_url_with_tavily(raw_url)
-        if tavily_text and len(tavily_text) >= 20:
-            logger.info("Retrieved social post content via Tavily URL indexing for %s", hostname)
-            return ExtractedPageText(text=tavily_text, source_domain=hostname)
-
-    # 2. Try direct HTTP fetch
-    html = ""
+    # 1. Fetch page using social crawler User-Agent (triggers server-side rendering of OG tags on Instagram/Twitter/etc.)
+    page_html = ""
     try:
-        response = requests.get(
+        req = urllib.request.Request(
             parsed.geturl(),
-            timeout=15,
             headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) Safari/537.36"
-                ),
+                "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 "Accept-Language": "en-US,en;q=0.9,hi;q=0.8",
             },
         )
-        if response.status_code == 200:
-            html = response.text
-    except requests.RequestException as error:
-        logger.warning("Direct HTTP request failed for %s: %s", raw_url, error)
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            page_html = resp.read().decode("utf-8", errors="ignore")
+    except Exception as error:
+        logger.warning("Crawler fetch failed for %s: %s", raw_url, error)
 
-    # 3. Extract Open Graph / Meta tags from HTML
-    og_text = _extract_og_meta_text(html) if html else ""
+    # 2. Extract and clean Open Graph metadata
+    og_text = _extract_og_meta_text(page_html) if page_html else ""
 
-    # 4. Extract article body from HTML
-    article_text = _extract_main_article_text(html) if html else ""
+    # 3. For social media platforms, if we got clean caption/title, that is our primary post content
+    if is_dynamic_site and og_text and not _is_boilerplate(og_text) and len(og_text) >= 15:
+        logger.info("Extracted social post from OG tags (%d chars) for %s", len(og_text), hostname)
+        return ExtractedPageText(text=normalize_text(og_text), source_domain=hostname)
 
-    # Check if extracted text is just boilerplate / login wall
+    # 4. Extract article body from HTML for standard news/blog articles
+    article_text = _extract_main_article_text(page_html) if page_html else ""
+    if _is_boilerplate(article_text):
+        article_text = ""
+
     candidate_text = article_text or og_text
-    if _is_boilerplate(candidate_text):
-        candidate_text = ""
 
-    # 5. If direct fetch yielded nothing or boilerplate, try Tavily search as general fallback
+    # 5. If crawler didn't get enough text, fallback to Tavily URL search
     if not candidate_text or len(candidate_text) < 30:
-        tavily_fallback = _search_url_with_tavily(raw_url)
-        if tavily_fallback and not _is_boilerplate(tavily_fallback):
-            candidate_text = tavily_fallback
-
-    # 6. If OG text had real content, combine it with article text
-    if not candidate_text and og_text and not _is_boilerplate(og_text):
-        candidate_text = og_text
+        # Strip tracking query params for cleaner search
+        clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        tavily_text = _search_url_with_tavily(clean_url)
+        if tavily_text and not _is_boilerplate(tavily_text):
+            candidate_text = tavily_text
 
     normalized = normalize_text(candidate_text)
     if not normalized or len(normalized) < 15:
@@ -325,9 +319,9 @@ def _search_url_with_tavily(url: str) -> str:
         for r in results:
             title = r.get("title", "").strip()
             content = r.get("content", "").strip()
-            if title and title not in parts:
+            if title and title not in parts and not _is_boilerplate(title):
                 parts.append(title)
-            if content and content not in parts:
+            if content and content not in parts and not _is_boilerplate(content):
                 parts.append(content)
 
         return "\n\n".join(parts)
@@ -346,30 +340,34 @@ def _is_boilerplate(text: str) -> bool:
 
 
 def _extract_og_meta_text(html: str) -> str:
-    """Extract Open Graph and standard meta tags from HTML."""
+    """Extract Open Graph and standard meta tags from HTML, decoding HTML entities."""
+    import html as html_module
+
     if not html:
         return ""
-    soup = BeautifulSoup(html, "html.parser")
-    parts: list[str] = []
 
-    og_title = soup.find("meta", property="og:title")
-    og_desc = soup.find("meta", property="og:description")
-    og_site = soup.find("meta", property="og:site_name")
-    tw_title = soup.find("meta", attrs={"name": "twitter:title"})
-    tw_desc = soup.find("meta", attrs={"name": "twitter:description"})
-    meta_desc = soup.find("meta", attrs={"name": "description"})
-    title_tag = soup.find("title")
+    # Regex search for OG tags (works without bs4)
+    og_title_m = re.search(r'<meta[^>]*property=[\"\']og:title[\"\'][^>]*content=[\"\'](.*?)[\"\']', html, re.DOTALL | re.IGNORECASE)
+    og_desc_m = re.search(r'<meta[^>]*property=[\"\']og:description[\"\'][^>]*content=[\"\'](.*?)[\"\']', html, re.DOTALL | re.IGNORECASE)
+    tw_desc_m = re.search(r'<meta[^>]*name=[\"\']twitter:description[\"\'][^>]*content=[\"\'](.*?)[\"\']', html, re.DOTALL | re.IGNORECASE)
 
-    title = _get_meta_content(og_title) or _get_meta_content(tw_title) or (title_tag.get_text(strip=True) if title_tag else "")
-    description = _get_meta_content(og_desc) or _get_meta_content(tw_desc) or _get_meta_content(meta_desc)
-    site_name = _get_meta_content(og_site)
+    title = html_module.unescape(og_title_m.group(1)).strip() if og_title_m else ""
+    desc = html_module.unescape(og_desc_m.group(1)).strip() if og_desc_m else ""
+    if not desc and tw_desc_m:
+        desc = html_module.unescape(tw_desc_m.group(1)).strip()
 
-    if title and not _is_boilerplate(title):
-        parts.append(title)
-    if description and description != title and not _is_boilerplate(description):
-        parts.append(description)
+    # Clean social media prefix like "903 likes, 7 comments - username on date: "
+    clean_desc = re.sub(r'^[0-9,KkMm\s]+likes?,?\s+[0-9,KkMm\s]+comments?\s+-\s+[^\:]+:\s*', '', desc, flags=re.IGNORECASE).strip()
+    if clean_desc.startswith('"') and clean_desc.endswith('"'):
+        clean_desc = clean_desc[1:-1].strip()
 
-    return "\n\n".join(parts) if parts else ""
+    # Clean title like "Username on Instagram: \"...\""
+    clean_title = re.sub(r'^[^\:]+on\s+Instagram:\s*', '', title, flags=re.IGNORECASE).strip()
+    if clean_title.startswith('"') and clean_title.endswith('"'):
+        clean_title = clean_title[1:-1].strip()
+
+    candidate = clean_desc or clean_title or desc or title
+    return candidate
 
 
 def _get_meta_content(tag: Any) -> str:
