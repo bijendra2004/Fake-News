@@ -699,6 +699,9 @@ function App() {
               <a className="font-mono text-xs font-bold uppercase tracking-[0.28em] text-black/80 transition hover:text-black dark:text-white/70 dark:hover:text-white" href="#how-it-works">
                 HOW IT WORKS
               </a>
+              <a className="font-mono text-xs font-bold uppercase tracking-[0.28em] text-black/80 transition hover:text-black dark:text-white/70 dark:hover:text-white" href="#about">
+                ABOUT
+              </a>
             </div>
             <button
               type="button"
@@ -716,7 +719,7 @@ function App() {
               </span>
             </button>
             {accessToken ? (
-              <div className="relative" ref={accountMenuRef}>
+              <div className="relative z-50" ref={accountMenuRef}>
                 <button
                   type="button"
                   onClick={() => setShowAccountMenu((value) => !value)}
@@ -775,11 +778,18 @@ function App() {
               </p>
 
               <div className="mt-8 flex flex-wrap items-center gap-4">
-                <button type="button" className="inline-flex min-h-11 items-center gap-2 border border-black bg-white px-4 font-mono text-xs font-bold uppercase tracking-[0.26em] text-black transition hover:bg-black hover:text-white dark:border-white dark:bg-[#0f0f0f] dark:text-white dark:hover:bg-white dark:hover:text-black" onClick={() => setShowLoginPrompt(true)}>
-                  <span aria-hidden="true">⚡</span>
-                  SIGN IN TO VERIFY
-                </button>
-                <a href="#input" className="font-mono text-xs font-bold uppercase tracking-[0.26em] text-black underline decoration-black underline-offset-4 transition hover:text-[#ef4444] dark:text-white dark:decoration-white">
+                {accessToken ? (
+                  <a href="#input" className="inline-flex min-h-11 items-center gap-2 border border-black bg-black px-4 font-mono text-xs font-bold uppercase tracking-[0.26em] text-white transition hover:bg-[#1f1f1f] dark:border-white dark:bg-white dark:text-black dark:hover:bg-[#e6e6e6]">
+                    <span aria-hidden="true">✓</span>
+                    START VERIFYING
+                  </a>
+                ) : (
+                  <button type="button" className="inline-flex min-h-11 items-center gap-2 border border-black bg-white px-4 font-mono text-xs font-bold uppercase tracking-[0.26em] text-black transition hover:bg-black hover:text-white dark:border-white dark:bg-[#0f0f0f] dark:text-white dark:hover:bg-white dark:hover:text-black" onClick={() => setShowLoginPrompt(true)}>
+                    <span aria-hidden="true">⚡</span>
+                    SIGN IN TO VERIFY
+                  </button>
+                )}
+                <a href="#how-it-works" className="font-mono text-xs font-bold uppercase tracking-[0.26em] text-black underline decoration-black underline-offset-4 transition hover:text-[#ef4444] dark:text-white dark:decoration-white">
                   HOW IT WORKS
                 </a>
               </div>
@@ -1068,6 +1078,87 @@ function App() {
           </div>
         </section>
 
+        <section id="about" className="hero-grid border-t border-black/10 bg-[#f7f6f2] py-14 dark:border-white/10 dark:bg-[#0f0f0f] sm:py-20">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="mb-8">
+              <span className="font-mono text-xs font-extrabold uppercase tracking-[0.3em] text-black/80 dark:text-white/80">ABOUT US</span>
+            </div>
+
+            <div className="grid gap-10 md:grid-cols-2">
+              <div>
+                <h2 className="text-3xl font-black uppercase tracking-tight text-black dark:text-white sm:text-4xl">
+                  Built to fight <span className="text-[#ef4444]">misinformation.</span>
+                </h2>
+                <p className="mt-6 font-sans text-base leading-7 text-black/60 dark:text-white/60">
+                  SachLens is an AI-powered fact-checking platform designed to help users verify claims across multiple media formats — text, images, voice notes, and links. In a world flooded with information, SachLens gives you the tools to separate truth from noise.
+                </p>
+                <p className="mt-4 font-sans text-base leading-7 text-black/60 dark:text-white/60">
+                  Our mission is simple: empower individuals to make informed decisions by providing fast, accessible, and AI-driven analysis of news and claims.
+                </p>
+
+                <div className="mt-8 space-y-3">
+                  <div className="flex items-start gap-3">
+                    <span className="mt-0.5 font-mono text-sm font-bold text-[#ef4444]">01</span>
+                    <p className="font-sans text-sm leading-6 text-black/60 dark:text-white/60">
+                      <strong className="text-black dark:text-white">Multi-format analysis</strong> — Verify text claims, images, voice recordings, and web links all in one place.
+                    </p>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <span className="mt-0.5 font-mono text-sm font-bold text-[#ef4444]">02</span>
+                    <p className="font-sans text-sm leading-6 text-black/60 dark:text-white/60">
+                      <strong className="text-black dark:text-white">AI-powered verdicts</strong> — Powered by advanced language models to provide detailed, reasoned analysis.
+                    </p>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <span className="mt-0.5 font-mono text-sm font-bold text-[#ef4444]">03</span>
+                    <p className="font-sans text-sm leading-6 text-black/60 dark:text-white/60">
+                      <strong className="text-black dark:text-white">Privacy first</strong> — Your data is encrypted and never shared. We believe verification shouldn't cost your privacy.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border border-black/15 bg-white p-8 dark:border-white/15 dark:bg-[#101010]">
+                <div className="font-mono text-xs font-bold uppercase tracking-[0.28em] text-black/45 dark:text-white/45">DEVELOPER</div>
+                <h3 className="mt-3 text-xl font-black uppercase tracking-tight text-black dark:text-white">Bijendra Yadav</h3>
+                <p className="mt-3 font-sans text-sm leading-6 text-black/60 dark:text-white/60">
+                  Full-stack developer passionate about building impactful tools that make a difference. SachLens was created as a project to combat the growing menace of fake news and misinformation in the digital age.
+                </p>
+
+                <div className="mt-6 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-8 w-8 items-center justify-center bg-black text-white dark:bg-white dark:text-black">
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4"><path d="M3 4a2 2 0 0 0-2 2v1.161l8.441 4.221a1.25 1.25 0 0 0 1.118 0L19 7.162V6a2 2 0 0 0-2-2H3Z" /><path d="m19 8.839-7.77 3.885a2.75 2.75 0 0 1-2.46 0L1 8.839V14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.839Z" /></svg>
+                    </span>
+                    <a href="mailto:bijendra2004yadav@gmail.com" className="font-mono text-xs font-bold tracking-wide text-black/70 transition hover:text-[#ef4444] dark:text-white/70 dark:hover:text-[#ef4444]">
+                      bijendra2004yadav@gmail.com
+                    </a>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-8 w-8 items-center justify-center bg-black text-white dark:bg-white dark:text-black">
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4"><path fillRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2Z" clipRule="evenodd" /></svg>
+                    </span>
+                    <a href="https://github.com/bijendra2004" target="_blank" rel="noopener noreferrer" className="font-mono text-xs font-bold tracking-wide text-black/70 transition hover:text-[#ef4444] dark:text-white/70 dark:hover:text-[#ef4444]">
+                      github.com/bijendra2004
+                    </a>
+                  </div>
+                </div>
+
+                <div className="mt-8 border-t border-black/10 pt-6 dark:border-white/10">
+                  <div className="font-mono text-xs font-bold uppercase tracking-[0.28em] text-black/45 dark:text-white/45">TECH STACK</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {['React', 'FastAPI', 'Python', 'Tailwind CSS', 'Groq AI', 'SQLAlchemy'].map((tech) => (
+                      <span key={tech} className="border border-black/15 px-2.5 py-1 font-mono text-[0.65rem] font-bold uppercase tracking-wider text-black/60 dark:border-white/15 dark:text-white/60">
+                        {tech}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <footer className="border-t border-black/10 bg-[#f8f7f3] py-14 dark:border-white/10 dark:bg-[#090909] sm:py-16">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="flex flex-col items-center gap-6 text-center md:flex-row md:items-start md:justify-between md:text-left">
@@ -1075,17 +1166,21 @@ function App() {
                 SACH<span className="text-[#ef4444]">/</span>LENS
               </a>
 
-              <nav aria-label="Footer" className="flex flex-wrap items-center justify-center gap-y-3 font-mono text-xs font-bold uppercase tracking-[0.28em] text-black/70 dark:text-white/70 sm:text-[0.7rem] md:justify-end">
+              <nav aria-label="Footer" className="flex flex-wrap items-center justify-center gap-x-5 gap-y-3 font-mono text-xs font-bold uppercase tracking-[0.28em] text-black/70 dark:text-white/70 sm:text-[0.7rem] md:justify-end">
+                <a href="#top" className="transition hover:text-[#ef4444] hover:underline hover:underline-offset-4 dark:hover:text-[#ef4444]">
+                  HOME
+                </a>
+                <span className="hidden h-3 w-px bg-black/15 dark:bg-white/15 sm:inline-block" aria-hidden="true" />
                 <a href="#how-it-works" className="transition hover:text-[#ef4444] hover:underline hover:underline-offset-4 dark:hover:text-[#ef4444]">
                   HOW IT WORKS
                 </a>
                 <span className="hidden h-3 w-px bg-black/15 dark:bg-white/15 sm:inline-block" aria-hidden="true" />
-                <a href="#privacy" className="transition hover:text-[#ef4444] hover:underline hover:underline-offset-4 dark:hover:text-[#ef4444]">
-                  PRIVACY
+                <a href="#about" className="transition hover:text-[#ef4444] hover:underline hover:underline-offset-4 dark:hover:text-[#ef4444]">
+                  ABOUT
                 </a>
                 <span className="hidden h-3 w-px bg-black/15 dark:bg-white/15 sm:inline-block" aria-hidden="true" />
-                <a href="#terms" className="transition hover:text-[#ef4444] hover:underline hover:underline-offset-4 dark:hover:text-[#ef4444]">
-                  TERMS
+                <a href="#privacy" className="transition hover:text-[#ef4444] hover:underline hover:underline-offset-4 dark:hover:text-[#ef4444]">
+                  PRIVACY
                 </a>
               </nav>
             </div>
@@ -1095,7 +1190,7 @@ function App() {
                 AI-POWERED ANALYSIS. RESULTS ARE INDICATIVE, NOT LEGAL ADVICE.
               </p>
               <p className="font-mono text-[0.65rem] font-bold uppercase tracking-[0.28em] text-black/45 dark:text-white/45 sm:text-xs">
-                © 2026 SACHLENS. ALL RIGHTS RESERVED.
+                BUILT BY <a href="mailto:bijendra2004yadav@gmail.com" className="text-[#ef4444] hover:underline">BIJENDRA YADAV</a> · © 2026 SACHLENS. ALL RIGHTS RESERVED.
               </p>
             </div>
           </div>
