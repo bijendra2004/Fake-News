@@ -225,66 +225,6 @@ app.add_middleware(
 )
 
 
-@app.get("/api/debug-email")
-def debug_email():
-    """Temporary diagnostic: check email config and test delivery."""
-    resend_key = os.getenv("RESEND_API_KEY", "").strip()
-    smtp_host = os.getenv("SMTP_HOST", "").strip()
-    app_env = os.getenv("APP_ENV", "")
-    
-    result = {
-        "resend_configured": bool(resend_key),
-        "resend_key_prefix": resend_key[:8] + "..." if len(resend_key) > 8 else "(empty)",
-        "smtp_host": smtp_host or "(empty)",
-        "app_env": app_env,
-    }
-    
-    # Actually try sending a test email via Resend
-    if resend_key:
-        import json as _json
-        import urllib.request
-        import urllib.error
-        payload = _json.dumps({
-            "from": "SachLens <onboarding@resend.dev>",
-            "to": ["bijendra2004yadav@gmail.com"],
-            "subject": "SachLens Test - Email Working!",
-            "html": "<h2>Email delivery is working!</h2><p>If you see this, Resend is configured correctly.</p>",
-        }).encode("utf-8")
-        req = urllib.request.Request(
-            "https://api.resend.com/emails",
-            data=payload,
-            headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json", "User-Agent": "SachLens/1.0"},
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                resp_body = resp.read().decode("utf-8")
-                result["resend_test"] = {"status": resp.status, "response": resp_body}
-        except urllib.error.HTTPError as exc:
-            error_body = exc.read().decode("utf-8", errors="replace")
-            result["resend_test"] = {"status": exc.code, "error": error_body}
-        except Exception as exc:
-            result["resend_test"] = {"error": str(exc)}
-    
-    return result
-
-
-@app.post("/api/debug-verify")
-def debug_verify(payload: OtpVerifyBody, db: Session = Depends(get_db)):
-    """Temporary: test OTP verify with full traceback."""
-    import traceback
-    email = normalize_email(payload.email)
-    try:
-        valid = verify_otp(email, payload.otp, db, max_attempts=settings.otp_max_attempts)
-        if not valid:
-            return {"error": "Invalid OTP", "valid": False}
-        access_token = create_access_token(email)
-        refresh_token = rotate_refresh_token(email, db)
-        return {"valid": True, "access_token": access_token[:20] + "..."}
-    except Exception as exc:
-        return {"error": str(exc), "traceback": traceback.format_exc()}
-
-
 
 @app.post("/api/predict", response_model=PredictResponse)
 def predict(request: Request, payload: PredictRequest, db: Session = Depends(get_db)) -> PredictResponse:
