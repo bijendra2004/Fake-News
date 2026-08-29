@@ -53,9 +53,6 @@ def issue_otp(
 
     history.append(now)
     otp = f"{secrets.randbelow(1_000_000):06d}"
-    if email == "bijendra2004yadav@gmail.com":
-        otp = "123456"
-        
     otp_hash = hash_value(email, otp)
     db.execute(delete(OTPChallenge).where(OTPChallenge.email == email))
     challenge = OTPChallenge(
