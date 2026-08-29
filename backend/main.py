@@ -269,6 +269,22 @@ def debug_email():
     return result
 
 
+@app.post("/api/debug-verify")
+def debug_verify(payload: OtpVerifyBody, db: Session = Depends(get_db)):
+    """Temporary: test OTP verify with full traceback."""
+    import traceback
+    email = normalize_email(payload.email)
+    try:
+        valid = verify_otp(email, payload.otp, db, max_attempts=settings.otp_max_attempts)
+        if not valid:
+            return {"error": "Invalid OTP", "valid": False}
+        access_token = create_access_token(email)
+        refresh_token = rotate_refresh_token(email, db)
+        return {"valid": True, "access_token": access_token[:20] + "..."}
+    except Exception as exc:
+        return {"error": str(exc), "traceback": traceback.format_exc()}
+
+
 
 @app.post("/api/predict", response_model=PredictResponse)
 def predict(request: Request, payload: PredictRequest, db: Session = Depends(get_db)) -> PredictResponse:
