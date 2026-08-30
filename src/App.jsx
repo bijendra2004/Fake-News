@@ -69,6 +69,10 @@ function App() {
 
   useEffect(() => {
     setDeviceFingerprint(createDeviceFingerprint())
+    // Pre-warm the backend server immediately on page load to eliminate cold-start delay
+    if (API_BASE_URL) {
+      fetch(`${API_BASE_URL}/api/health`).catch(() => {})
+    }
   }, [])
 
   useEffect(() => {

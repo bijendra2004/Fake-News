@@ -34,43 +34,64 @@ _OTP_HTML_TEMPLATE = """
 
 
 def send_otp_email(email: str, otp: str, expires_minutes: int = 10) -> None:
-    """Send OTP email using Brevo (primary), Resend (secondary), or SMTP (fallback).
+    """Send OTP email with fast automatic failover across configured providers.
 
-    Brevo and Resend use HTTP APIs which work on Render's free tier,
-    while SMTP ports are blocked by Render.
+    1. Brevo HTTP API (Fast, sends to any recipient)
+    2. Resend HTTP API (Fast fallback)
+    3. SMTP (Local development fallback)
     """
     sender_name = os.getenv("SMTP_FROM_NAME", "SachLens").strip() or "SachLens"
+    attempted_providers: list[str] = []
+    errors: list[str] = []
 
-    # Try Brevo HTTP API first (works on Render, sends to ANY email)
+    # 1. Try Brevo HTTP API (primary)
     brevo_api_key = os.getenv("BREVO_API_KEY", "").strip()
     if brevo_api_key:
-        _send_via_brevo(email, otp, expires_minutes, brevo_api_key, sender_name)
-        return
+        attempted_providers.append("Brevo")
+        try:
+            _send_via_brevo(email, otp, expires_minutes, brevo_api_key, sender_name)
+            logger.info("OTP email delivered successfully via Brevo to %s", email)
+            return
+        except Exception as error:
+            logger.warning("Brevo delivery failed for %s: %s; trying next provider", email, error)
+            errors.append(f"Brevo: {error}")
 
-    # Try Resend HTTP API (works on Render, but free tier limited to registered email)
+    # 2. Try Resend HTTP API (secondary / fallback)
     resend_api_key = os.getenv("RESEND_API_KEY", "").strip()
     if resend_api_key:
-        _send_via_resend(email, otp, expires_minutes, resend_api_key, sender_name)
-        return
+        attempted_providers.append("Resend")
+        try:
+            _send_via_resend(email, otp, expires_minutes, resend_api_key, sender_name)
+            logger.info("OTP email delivered successfully via Resend to %s", email)
+            return
+        except Exception as error:
+            logger.warning("Resend delivery failed for %s: %s; trying next provider", email, error)
+            errors.append(f"Resend: {error}")
 
-    # Fall back to SMTP (works locally but NOT on Render free tier)
+    # 3. Fall back to SMTP (works locally, fallback if on non-blocked host)
     smtp_host = os.getenv("SMTP_HOST", "").strip()
-    if not smtp_host:
+    if smtp_host:
+        attempted_providers.append("SMTP")
+        try:
+            _send_via_smtp(email, otp, expires_minutes)
+            logger.info("OTP email delivered successfully via SMTP to %s", email)
+            return
+        except Exception as error:
+            logger.warning("SMTP delivery failed for %s: %s", email, error)
+            errors.append(f"SMTP: {error}")
+
+    # If no providers configured or all failed
+    if not attempted_providers:
         if os.getenv("APP_ENV", "development").lower() == "production":
-            raise EmailDeliveryError(
-                "Email delivery is not configured. Set BREVO_API_KEY, RESEND_API_KEY, or SMTP_HOST."
-            )
+            raise EmailDeliveryError("Email delivery is not configured. Set BREVO_API_KEY, RESEND_API_KEY, or SMTP_HOST.")
         logger.info("Email not configured; OTP email skipped for %s in non-production", email)
         return
 
-    _send_via_smtp(email, otp, expires_minutes)
+    raise EmailDeliveryError(f"All email delivery providers failed for {email}: {'; '.join(errors)}")
 
 
 def _send_via_brevo(email: str, otp: str, expires_minutes: int, api_key: str, sender_name: str) -> None:
-    """Send OTP email via Brevo (formerly SendinBlue) HTTP API.
-
-    Free tier: 300 emails/day, sends to ANY email address.
-    """
+    """Send OTP email via Brevo HTTP API with short timeout for speed."""
     from_email = os.getenv("BREVO_FROM_EMAIL", "sachlensuserauth@gmail.com").strip()
     subject = os.getenv("OTP_EMAIL_SUBJECT", "Your SachLens OTP Code")
 
@@ -95,24 +116,13 @@ def _send_via_brevo(email: str, otp: str, expires_minutes: int, api_key: str, se
         method="POST",
     )
 
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            resp_body = resp.read().decode("utf-8")
-            logger.info("Brevo API response: %s %s", resp.status, resp_body)
-    except urllib.error.HTTPError as exc:
-        error_body = exc.read().decode("utf-8", errors="replace")
-        logger.error("Brevo API error: %s %s", exc.code, error_body)
-        raise EmailDeliveryError(f"Brevo API error: {exc.code} {error_body}") from exc
-    except Exception as exc:
-        logger.exception("Brevo API request failed")
-        raise EmailDeliveryError("Failed to send OTP email via Brevo") from exc
+    with urllib.request.urlopen(req, timeout=6) as resp:
+        resp_body = resp.read().decode("utf-8")
+        logger.info("Brevo response status=%s body=%s", resp.status, resp_body)
 
 
 def _send_via_resend(email: str, otp: str, expires_minutes: int, api_key: str, sender_name: str) -> None:
-    """Send OTP email via Resend HTTP API (https://resend.com).
-
-    Note: Free tier with onboarding@resend.dev only sends to the registered email.
-    """
+    """Send OTP email via Resend HTTP API with short timeout for speed."""
     from_email = os.getenv("RESEND_FROM_EMAIL", "onboarding@resend.dev").strip()
     subject = os.getenv("OTP_EMAIL_SUBJECT", "Your SachLens OTP Code")
 
@@ -136,21 +146,13 @@ def _send_via_resend(email: str, otp: str, expires_minutes: int, api_key: str, s
         method="POST",
     )
 
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            resp_body = resp.read().decode("utf-8")
-            logger.info("Resend API response: %s %s", resp.status, resp_body)
-    except urllib.error.HTTPError as exc:
-        error_body = exc.read().decode("utf-8", errors="replace")
-        logger.error("Resend API error: %s %s", exc.code, error_body)
-        raise EmailDeliveryError(f"Resend API error: {exc.code} {error_body}") from exc
-    except Exception as exc:
-        logger.exception("Resend API request failed")
-        raise EmailDeliveryError("Failed to send OTP email via Resend") from exc
+    with urllib.request.urlopen(req, timeout=6) as resp:
+        resp_body = resp.read().decode("utf-8")
+        logger.info("Resend response status=%s body=%s", resp.status, resp_body)
 
 
 def _send_via_smtp(email: str, otp: str, expires_minutes: int) -> None:
-    """Send OTP email via traditional SMTP (for local development)."""
+    """Send OTP email via traditional SMTP with short connection timeout."""
     smtp_host = os.getenv("SMTP_HOST", "").strip()
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
     smtp_user = os.getenv("SMTP_USERNAME", "").strip()
@@ -165,11 +167,6 @@ def _send_via_smtp(email: str, otp: str, expires_minutes: int) -> None:
 
     subject = os.getenv("OTP_EMAIL_SUBJECT", "Your SachLens OTP Code")
 
-    logger.info(
-        "Sending OTP email via SMTP host=%s port=%s from=%s to=%s",
-        smtp_host, smtp_port, sender_email, email,
-    )
-
     message = EmailMessage()
     message["Subject"] = subject
     message["From"] = f"{sender_name} <{sender_email}>"
@@ -182,26 +179,20 @@ def _send_via_smtp(email: str, otp: str, expires_minutes: int) -> None:
         )
     )
 
-    try:
-        if smtp_use_ssl:
-            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=15, context=ssl.create_default_context()) as smtp:
-                if smtp_user:
-                    smtp.login(smtp_user, smtp_password)
-                send_result: Any = smtp.send_message(message)
-                logger.info("SMTP send_message response: %s", send_result)
-        else:
-            with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as smtp:
+    if smtp_use_ssl:
+        with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=6, context=ssl.create_default_context()) as smtp:
+            if smtp_user:
+                smtp.login(smtp_user, smtp_password)
+            smtp.send_message(message)
+    else:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=6) as smtp:
+            smtp.ehlo()
+            if smtp_use_tls:
+                smtp.starttls(context=ssl.create_default_context())
                 smtp.ehlo()
-                if smtp_use_tls:
-                    smtp.starttls(context=ssl.create_default_context())
-                    smtp.ehlo()
-                if smtp_user:
-                    smtp.login(smtp_user, smtp_password)
-                send_result = smtp.send_message(message)
-                logger.info("SMTP send_message response: %s", send_result)
-    except Exception as exc:
-        logger.exception("SMTP OTP delivery failed")
-        raise EmailDeliveryError("Failed to send OTP email") from exc
+            if smtp_user:
+                smtp.login(smtp_user, smtp_password)
+            smtp.send_message(message)
 
 
 def _parse_bool(value: str | None) -> bool:

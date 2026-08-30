@@ -226,6 +226,11 @@ app.add_middleware(
 
 
 
+@app.get("/api/health")
+def health_check():
+    return {"status": "ok"}
+
+
 @app.post("/api/predict", response_model=PredictResponse)
 def predict(request: Request, payload: PredictRequest, db: Session = Depends(get_db)) -> PredictResponse:
     return predict_from_text(request, payload.text, db)
