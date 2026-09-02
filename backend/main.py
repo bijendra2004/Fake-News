@@ -170,6 +170,7 @@ class PredictMediaResponse(PredictResponse):
 
 class PredictLinkRequest(BaseModel):
     url: str = Field(min_length=1, max_length=2048)
+    context: str | None = Field(default=None, max_length=2048)
 
 
 class LogoutResponse(BaseModel):
@@ -295,7 +296,10 @@ async def predict_voice(request: Request, file: UploadFile = File(...), db: Sess
 def predict_link(request: Request, payload: PredictLinkRequest, db: Session = Depends(get_db)) -> PredictMediaResponse:
     try:
         extracted = extract_text_from_url(payload.url)
-        prediction = predict_from_text(request, extracted.text, db)
+        combined_text = extracted.text
+        if payload.context and payload.context.strip():
+            combined_text = f"{payload.context.strip()}\n\n[Content from link {payload.url}]:\n{extracted.text}"
+        prediction = predict_from_text(request, combined_text, db)
         return PredictMediaResponse(
             **prediction.model_dump(),
             extracted_text=extracted.text,

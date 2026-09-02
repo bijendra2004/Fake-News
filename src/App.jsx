@@ -18,6 +18,7 @@ function App() {
   const [activeTab, setActiveTab] = useState('text')
   const [textValue, setTextValue] = useState('')
   const [linkValue, setLinkValue] = useState('')
+  const [linkContext, setLinkContext] = useState('')
   const [imageFile, setImageFile] = useState(null)
   const [imagePreview, setImagePreview] = useState('')
   const [imageContext, setImageContext] = useState('')
@@ -328,7 +329,7 @@ function App() {
     }
 
     if (activeTab === 'link' && linkValue.trim()) {
-      await analyzeLink(linkValue.trim())
+      await analyzeLink(linkValue.trim(), linkContext.trim())
     }
   }
 
@@ -644,7 +645,7 @@ function App() {
     }
   }
 
-  async function analyzeLink(url) {
+  async function analyzeLink(url, context) {
     setTabLoading((prev) => ({ ...prev, link: true }))
     setTabResults((prev) => ({ ...prev, link: null }))
 
@@ -660,7 +661,7 @@ function App() {
         method: 'POST',
         headers: buildApiHeaders({ 'Content-Type': 'application/json' }),
         credentials: 'include',
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url, context: context || undefined }),
       })
 
       const payload = await readJsonResponse(response)
@@ -979,6 +980,24 @@ function App() {
                     />
                     <div className="font-mono text-xs uppercase tracking-[0.24em] text-black/45 dark:text-white/45">
                       {linkValue ? (isValidSourceLink(linkValue) ? 'VALID SOURCE LINK' : 'LINK FORMAT NOT RECOGNIZED') : 'SUPPORTED SOURCES: YOUTUBE, X, INSTAGRAM, NEWS'}
+                    </div>
+
+                    <div className="space-y-2 pt-1">
+                      <label className="font-mono text-xs font-bold uppercase tracking-[0.26em] text-black/55 dark:text-white/55" htmlFor="link-context-input">
+                        ADDITIONAL CONTEXT OR QUESTION (OPTIONAL)
+                      </label>
+                      <textarea
+                        id="link-context-input"
+                        value={linkContext}
+                        onChange={(event) => setLinkContext(event.target.value)}
+                        placeholder="e.g., Verify if the specific claim made in this post about the flood casualty count is true."
+                        maxLength={280}
+                        rows={2}
+                        className="w-full resize-none border border-black/15 bg-white p-3 font-sans text-sm text-black outline-none placeholder:text-black/35 transition focus:border-black dark:border-white/15 dark:bg-[#0b0b0b] dark:text-white dark:placeholder:text-white/35 dark:focus:border-white"
+                      />
+                      <div className={`flex justify-end font-mono text-[0.65rem] font-bold uppercase tracking-[0.2em] transition-colors ${linkContext.length >= 220 ? 'text-[#ef4444]' : 'text-black/40 dark:text-white/40'}`}>
+                        {linkContext.length}/280 CHARACTERS
+                      </div>
                     </div>
                   </div>
                 )}
