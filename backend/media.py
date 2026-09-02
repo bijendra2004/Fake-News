@@ -81,16 +81,19 @@ _DYNAMIC_DOMAINS = {
 }
 
 
-def extract_text_from_image(image_path: Path) -> str:
+def extract_text_from_image(image_path: Path, user_context: str | None = None) -> str:
     """Extract text and claims from an image using Gemini Vision (primary) or Tesseract OCR (fallback).
 
     Handles Hindi/multilingual text, WhatsApp forwards, news screenshots, and memes.
+    Integrates user-supplied question/context to guide verification.
     """
-    # 1. Try Gemini Vision first (best quality for Hindi, screenshots, WhatsApp forwards)
+    clean_context = user_context.strip() if user_context else ""
+
+    # 1. Try Gemini Vision first (best quality for Hindi, screenshots, WhatsApp forwards, combined context)
     gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
     if gemini_key:
         try:
-            extracted = _analyze_image_gemini(image_path, gemini_key)
+            extracted = _analyze_image_gemini(image_path, gemini_key, user_context=clean_context)
             if extracted and len(extracted.strip()) >= 5:
                 logger.info("Gemini Vision extracted claim (%d chars): %s", len(extracted), extracted[:100])
                 return extracted
@@ -99,6 +102,8 @@ def extract_text_from_image(image_path: Path) -> str:
 
     # 2. Fallback to Tesseract OCR
     if pytesseract is None:
+        if clean_context:
+            return clean_context
         raise MediaProcessingError("Could not extract readable text from the image. Please enter the claim as text.")
 
     try:
@@ -109,15 +114,23 @@ def extract_text_from_image(image_path: Path) -> str:
             except Exception:
                 text = pytesseract.image_to_string(image)
     except Exception as error:
+        if clean_context:
+            return clean_context
         raise MediaProcessingError("Failed to extract text from the image. Please enter the claim as text.") from error
 
     normalized = normalize_text(text)
     if not normalized or len(normalized) < 5:
+        if clean_context:
+            return clean_context
         raise MediaProcessingError("No readable text was found in the uploaded image")
+
+    if clean_context:
+        return f"{clean_context}\n\n[Text in image: {normalized}]"
+
     return normalized
 
 
-def _analyze_image_gemini(image_path: Path, api_key: str) -> str:
+def _analyze_image_gemini(image_path: Path, api_key: str, user_context: str = "") -> str:
     """Send image to Gemini Multimodal Vision to extract text and describe the claim."""
     with open(image_path, "rb") as f:
         image_bytes = f.read()
@@ -140,11 +153,19 @@ def _analyze_image_gemini(image_path: Path, api_key: str) -> str:
         "gemini-flash-latest",
     ]
 
+    context_prompt = ""
+    if user_context:
+        context_prompt = (
+            f"\nUSER QUESTION / CONTEXT:\n\"{user_context}\"\n"
+            "Analyze the image specifically addressing the user's question or context above.\n"
+        )
+
     prompt_text = (
         "You are an expert fact-checker analyzing a news claim, social media post, or screenshot.\n"
-        "1. Extract ALL visible text from the image word-for-word in its original language (Hindi, English, etc.).\n"
-        "2. State the central claim or news message conveyed by the image.\n"
-        "3. Output a clear, concise statement of the claim that should be verified against live facts.\n"
+        f"{context_prompt}"
+        "1. Extract visible text from the image word-for-word in its original language (Hindi, English, etc.).\n"
+        "2. State the central claim, news event, or question conveyed by the image and user context.\n"
+        "3. Output a clear, comprehensive statement of the claim that should be verified against live facts.\n"
         "Do not include conversational filler. Start directly with the claim or extracted text."
     )
 

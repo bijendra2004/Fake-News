@@ -15,17 +15,20 @@ const OTP_RESEND_SECONDS = 120
 
 function App() {
   const [theme, setTheme] = useState(() => getInitialTheme())
-  const [activeTab, setActiveTab] = useState('voice')
+  const [activeTab, setActiveTab] = useState('text')
   const [textValue, setTextValue] = useState('')
   const [linkValue, setLinkValue] = useState('')
   const [imageFile, setImageFile] = useState(null)
   const [imagePreview, setImagePreview] = useState('')
+  const [imageContext, setImageContext] = useState('')
   const [audioBlob, setAudioBlob] = useState(null)
   const [audioUrl, setAudioUrl] = useState('')
   const [recordingState, setRecordingState] = useState('idle')
   const [recordingSeconds, setRecordingSeconds] = useState(0)
-  const [isAnalyzing, setIsAnalyzing] = useState(false)
-  const [analysisResult, setAnalysisResult] = useState(null)
+  const [tabResults, setTabResults] = useState({ text: null, image: null, voice: null, link: null })
+  const [tabLoading, setTabLoading] = useState({ text: false, image: false, voice: false, link: false })
+  const analysisResult = tabResults[activeTab]
+  const isAnalyzing = tabLoading[activeTab]
   const [showLoginPrompt, setShowLoginPrompt] = useState(false)
   const [mediaError, setMediaError] = useState('')
   const [deviceFingerprint, setDeviceFingerprint] = useState('')
@@ -315,7 +318,7 @@ function App() {
     }
 
     if (activeTab === 'image' && imageFile) {
-      await analyzeImage(imageFile)
+      await analyzeImage(imageFile, imageContext.trim())
       return
     }
 
@@ -510,13 +513,13 @@ function App() {
   }
 
   async function analyzeText(text) {
-    setIsAnalyzing(true)
-    setAnalysisResult(null)
+    setTabLoading((prev) => ({ ...prev, text: true }))
+    setTabResults((prev) => ({ ...prev, text: null }))
 
     if (!accessToken) {
       setShowLoginPrompt(true)
       setAuthError('Sign in to verify claims with SachLens.')
-      setIsAnalyzing(false)
+      setTabLoading((prev) => ({ ...prev, text: false }))
       return
     }
 
@@ -548,28 +551,31 @@ function App() {
         throw new Error(formatApiError(payload, 'Prediction failed.'))
       }
 
-      setAnalysisResult(formatPredictionResult(payload))
+      setTabResults((prev) => ({ ...prev, text: formatPredictionResult(payload) }))
     } catch (error) {
-      setAnalysisResult(formatErrorResult(error.message))
+      setTabResults((prev) => ({ ...prev, text: formatErrorResult(error.message) }))
     } finally {
-      setIsAnalyzing(false)
+      setTabLoading((prev) => ({ ...prev, text: false }))
     }
   }
 
-  async function analyzeImage(file) {
-    setIsAnalyzing(true)
-    setAnalysisResult(null)
+  async function analyzeImage(file, context) {
+    setTabLoading((prev) => ({ ...prev, image: true }))
+    setTabResults((prev) => ({ ...prev, image: null }))
 
     if (!accessToken) {
       setShowLoginPrompt(true)
       setAuthError('Sign in to verify claims with SachLens.')
-      setIsAnalyzing(false)
+      setTabLoading((prev) => ({ ...prev, image: false }))
       return
     }
 
     try {
       const formData = new FormData()
       formData.append('file', file)
+      if (context && context.trim()) {
+        formData.append('context', context.trim())
+      }
 
       const response = await fetch(`${API_BASE_URL}/api/predict-image`, {
         method: 'POST',
@@ -589,22 +595,22 @@ function App() {
         throw new Error(formatApiError(payload, 'Image analysis failed.'))
       }
 
-      setAnalysisResult(formatPredictionResult(payload))
+      setTabResults((prev) => ({ ...prev, image: formatPredictionResult(payload) }))
     } catch (error) {
-      setAnalysisResult(formatErrorResult(error.message))
+      setTabResults((prev) => ({ ...prev, image: formatErrorResult(error.message) }))
     } finally {
-      setIsAnalyzing(false)
+      setTabLoading((prev) => ({ ...prev, image: false }))
     }
   }
 
   async function analyzeVoice(blob) {
-    setIsAnalyzing(true)
-    setAnalysisResult(null)
+    setTabLoading((prev) => ({ ...prev, voice: true }))
+    setTabResults((prev) => ({ ...prev, voice: null }))
 
     if (!accessToken) {
       setShowLoginPrompt(true)
       setAuthError('Sign in to verify claims with SachLens.')
-      setIsAnalyzing(false)
+      setTabLoading((prev) => ({ ...prev, voice: false }))
       return
     }
 
@@ -630,22 +636,22 @@ function App() {
         throw new Error(formatApiError(payload, 'Voice analysis failed.'))
       }
 
-      setAnalysisResult(formatPredictionResult(payload))
+      setTabResults((prev) => ({ ...prev, voice: formatPredictionResult(payload) }))
     } catch (error) {
-      setAnalysisResult(formatErrorResult(error.message))
+      setTabResults((prev) => ({ ...prev, voice: formatErrorResult(error.message) }))
     } finally {
-      setIsAnalyzing(false)
+      setTabLoading((prev) => ({ ...prev, voice: false }))
     }
   }
 
   async function analyzeLink(url) {
-    setIsAnalyzing(true)
-    setAnalysisResult(null)
+    setTabLoading((prev) => ({ ...prev, link: true }))
+    setTabResults((prev) => ({ ...prev, link: null }))
 
     if (!accessToken) {
       setShowLoginPrompt(true)
       setAuthError('Sign in to verify claims with SachLens.')
-      setIsAnalyzing(false)
+      setTabLoading((prev) => ({ ...prev, link: false }))
       return
     }
 
@@ -668,11 +674,11 @@ function App() {
         throw new Error(formatApiError(payload, 'Link analysis failed.'))
       }
 
-      setAnalysisResult(formatPredictionResult(payload))
+      setTabResults((prev) => ({ ...prev, link: formatPredictionResult(payload) }))
     } catch (error) {
-      setAnalysisResult(formatErrorResult(error.message))
+      setTabResults((prev) => ({ ...prev, link: formatErrorResult(error.message) }))
     } finally {
-      setIsAnalyzing(false)
+      setTabLoading((prev) => ({ ...prev, link: false }))
     }
   }
 
@@ -897,6 +903,24 @@ function App() {
                         </div>
                       </div>
                     )}
+
+                    <div className="space-y-2 pt-1">
+                      <label className="font-mono text-xs font-bold uppercase tracking-[0.26em] text-black/55 dark:text-white/55" htmlFor="image-context-input">
+                        ADDITIONAL CONTEXT OR QUESTION (OPTIONAL)
+                      </label>
+                      <textarea
+                        id="image-context-input"
+                        value={imageContext}
+                        onChange={(event) => setImageContext(event.target.value)}
+                        placeholder="e.g., Is this photo from the recent 2026 flood, or is it an old/unrelated image?"
+                        maxLength={280}
+                        rows={2}
+                        className="w-full resize-none border border-black/15 bg-white p-3 font-sans text-sm text-black outline-none placeholder:text-black/35 transition focus:border-black dark:border-white/15 dark:bg-[#0b0b0b] dark:text-white dark:placeholder:text-white/35 dark:focus:border-white"
+                      />
+                      <div className={`flex justify-end font-mono text-[0.65rem] font-bold uppercase tracking-[0.2em] transition-colors ${imageContext.length >= 220 ? 'text-[#ef4444]' : 'text-black/40 dark:text-white/40'}`}>
+                        {imageContext.length}/280 CHARACTERS
+                      </div>
+                    </div>
                   </div>
                 )}
 

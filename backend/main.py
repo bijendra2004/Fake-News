@@ -32,7 +32,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, EmailStr, Field
@@ -241,14 +241,19 @@ def predict(request: Request, payload: PredictRequest, db: Session = Depends(get
 
 
 @app.post("/api/predict-image", response_model=PredictMediaResponse)
-async def predict_image(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)) -> PredictMediaResponse:
+async def predict_image(
+    request: Request,
+    file: UploadFile = File(...),
+    context: str | None = Form(None),
+    db: Session = Depends(get_db),
+) -> PredictMediaResponse:
     # Require authentication before doing expensive upload processing
     if not get_authenticated_email(request):
         raise HTTPException(status_code=401, detail={"requires_login": True})
     stored_file = await store_analysis_upload(file, {"png", "jpeg", "gif", "webp"})
     try:
         try:
-            extracted_text = extract_text_from_image(stored_file)
+            extracted_text = extract_text_from_image(stored_file, user_context=context)
         except MediaProcessingError as error:
             # If OCR finds no readable text, return a clear, non-error response
             msg = str(error)
