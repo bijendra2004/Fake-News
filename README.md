@@ -4,7 +4,7 @@ SachLens is an AI-powered fact-checking and claim verification platform designed
 
 Rather than returning a simple binary fake/real label, SachLens utilizes live web search grounding (Tavily), fact-check lookups, and LLM reasoning with self-verification to produce a nuanced percentage confidence score, plain-language bulleted explanations, and verifiable cited sources.
 
-**Live Demo:** [https://fake-news-bznu.vercel.app](https://fake-news-bznu.vercel.app)  
+**Live Demo:** [https://sachlens-app.vercel.app](https://sachlens-app.vercel.app)  
 **Backend API:** [https://fake-news-cvzg.onrender.com](https://fake-news-cvzg.onrender.com)
 
 ## Features

@@ -14,6 +14,10 @@ if os.getenv("APP_ENV", "").strip().lower() == "production":
         os.environ["DATA_ENCRYPTION_KEY"] = "sachlens_prod_data_encryption_key_1234567890_32bytes_fallback"
     if not os.getenv("LLM_PROVIDER"):
         os.environ["LLM_PROVIDER"] = "groq"
+    if not os.getenv("FRONTEND_ORIGINS"):
+        os.environ["FRONTEND_ORIGINS"] = "https://sachlens-app.vercel.app,https://fake-news-bznu.vercel.app,http://localhost:5173"
+    elif "sachlens-app.vercel.app" not in os.getenv("FRONTEND_ORIGINS", ""):
+        os.environ["FRONTEND_ORIGINS"] = f"{os.getenv('FRONTEND_ORIGINS')},https://sachlens-app.vercel.app"
     if not os.getenv("SMTP_HOST"):
         os.environ["SMTP_HOST"] = "smtp.gmail.com"
         os.environ["SMTP_PORT"] = "587"
