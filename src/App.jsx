@@ -771,14 +771,14 @@ function App() {
               </div>
 
               <h1 className="max-w-4xl font-sans text-[clamp(3rem,8vw,4.5rem)] font-black uppercase leading-[0.92] tracking-tight text-black dark:text-white">
-                <span className="block">Is it real,</span>
+                <span className="block">Verify claims,</span>
                 <span className="block">
-                  or is it <em className="text-[#ef4444]">nonsense?</em>
+                  uncover the <em className="text-[#ef4444]">facts.</em>
                 </span>
               </h1>
 
               <p className="mt-6 max-w-xl font-sans text-base leading-7 text-black/60 dark:text-white/60 sm:text-lg">
-                SachLens checks text, images, links, and voice notes with a brutalist editorial interface built for fast judgment. Keep the pace high, keep the noise out, and verify before you share.
+                SachLens verifies claims across text, images, links, and voice notes using live web search grounding and AI reasoning. Get nuanced confidence scores, plain-language explanations, and cited sources before you share.
               </p>
 
               <div className="mt-8 flex flex-wrap items-center gap-4">
@@ -1067,9 +1067,9 @@ function App() {
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="grid gap-5 md:grid-cols-3 md:gap-6">
               {[
-                ['01', 'Drop in a claim, image, link, or voice note.'],
-                ['02', 'SachLens runs a fast editorial pass and returns a mock confidence score.'],
-                ['03', 'Use the result to decide whether to share, pause, or investigate further.'],
+                ['01', 'Drop in a claim, image, link, or voice note to inspect.'],
+                ['02', 'SachLens retrieves live web evidence and runs multi-pass AI reasoning.'],
+                ['03', 'Review confidence scores, plain explanations, and cited sources.'],
               ].map(([index, text]) => (
                 <div key={index} className="border-t border-black/12 bg-white/55 px-0 py-5 dark:border-white/12 dark:bg-[#0f0f0f]/70 sm:py-6">
                   <div className="pl-0 font-mono text-sm font-extrabold uppercase tracking-[0.28em] text-[#ef4444] dark:text-[#ef4444]">{index}</div>
@@ -1091,32 +1091,32 @@ function App() {
             <div className="grid gap-10 md:grid-cols-2">
               <div>
                 <h2 className="text-3xl font-black uppercase tracking-tight text-black dark:text-white sm:text-4xl">
-                  Built to fight <span className="text-[#ef4444]">misinformation.</span>
+                  Built for reliable <span className="text-[#ef4444]">claim verification.</span>
                 </h2>
                 <p className="mt-6 font-sans text-base leading-7 text-black/60 dark:text-white/60">
-                  SachLens is an AI-powered fact-checking platform designed to help users verify claims across multiple media formats — text, images, voice notes, and links. In a world flooded with information, SachLens gives you the tools to separate truth from noise.
+                  SachLens is an AI-powered fact-checking and claim verification platform designed to evaluate claims across multiple media formats — text, images, voice notes, and links. Rather than assigning simple binary labels, SachLens provides nuanced confidence percentages, cited web sources, and reasoned contextual breakdowns to separate verified facts from noise.
                 </p>
                 <p className="mt-4 font-sans text-base leading-7 text-black/60 dark:text-white/60">
-                  Our mission is simple: empower individuals to make informed decisions by providing fast, accessible, and AI-driven analysis of news and claims.
+                  Our mission is simple: empower individuals to make informed decisions by providing fast, accessible, and source-grounded analysis of news and viral claims.
                 </p>
 
                 <div className="mt-8 space-y-3">
                   <div className="flex items-start gap-3">
                     <span className="mt-0.5 font-mono text-sm font-bold text-[#ef4444]">01</span>
                     <p className="font-sans text-sm leading-6 text-black/60 dark:text-white/60">
-                      <strong className="text-black dark:text-white">Multi-format analysis</strong> — Verify text claims, images, voice recordings, and web links all in one place.
+                      <strong className="text-black dark:text-white">Multi-format analysis</strong> — Verify text claims, images, voice recordings, and web links in one unified interface.
                     </p>
                   </div>
                   <div className="flex items-start gap-3">
                     <span className="mt-0.5 font-mono text-sm font-bold text-[#ef4444]">02</span>
                     <p className="font-sans text-sm leading-6 text-black/60 dark:text-white/60">
-                      <strong className="text-black dark:text-white">AI-powered verdicts</strong> — Powered by advanced language models to provide detailed, reasoned analysis.
+                      <strong className="text-black dark:text-white">Source-grounded verdicts</strong> — Powered by live search grounding and advanced language models to provide cited, reasoned analysis.
                     </p>
                   </div>
                   <div className="flex items-start gap-3">
                     <span className="mt-0.5 font-mono text-sm font-bold text-[#ef4444]">03</span>
                     <p className="font-sans text-sm leading-6 text-black/60 dark:text-white/60">
-                      <strong className="text-black dark:text-white">Privacy first</strong> — Your data is encrypted and never shared. We believe verification shouldn't cost your privacy.
+                      <strong className="text-black dark:text-white">Privacy first</strong> — Your data is encrypted at rest and never shared. We believe verification shouldn't cost your privacy.
                     </p>
                   </div>
                 </div>
@@ -1126,7 +1126,7 @@ function App() {
                 <div className="font-mono text-xs font-bold uppercase tracking-[0.28em] text-black/45 dark:text-white/45">DEVELOPER</div>
                 <h3 className="mt-3 text-xl font-black uppercase tracking-tight text-black dark:text-white">Bijendra Yadav</h3>
                 <p className="mt-3 font-sans text-sm leading-6 text-black/60 dark:text-white/60">
-                  Full-stack developer passionate about building impactful tools that make a difference. SachLens was created as a project to combat the growing menace of fake news and misinformation in the digital age.
+                  Full-stack developer passionate about building impactful tools that make a difference. SachLens was created as a platform to empower users with transparent, source-grounded claim verification and combat misinformation across digital platforms.
                 </p>
 
                 <div className="mt-6 space-y-3">

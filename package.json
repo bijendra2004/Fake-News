@@ -1,5 +1,6 @@
 {
   "name": "sachlens",
+  "description": "SachLens — AI-Powered Fact-Checking & Claim Verification Platform",
   "private": true,
   "version": "0.0.0",
   "type": "module",

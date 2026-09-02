@@ -1,36 +1,39 @@
-# SachLens
+# SachLens — AI-Powered Fact-Checking & Claim Verification Platform
 
-AI-assisted verification tool for claims from text, images (OCR), links, and voice notes with a login-first workflow.
+SachLens is an AI-powered fact-checking and claim verification platform designed to evaluate news and viral claims across text, images (OCR/vision), links, and voice notes. 
 
-**Live Demo:** [link]  
-**Screenshots:** add after deployment
+Rather than returning a simple binary fake/real label, SachLens utilizes live web search grounding (Tavily), fact-check lookups, and LLM reasoning with self-verification to produce a nuanced percentage confidence score, plain-language bulleted explanations, and verifiable cited sources.
+
+**Live Demo:** [https://fake-news-bznu.vercel.app](https://fake-news-bznu.vercel.app)  
+**Backend API:** [https://fake-news-cvzg.onrender.com](https://fake-news-cvzg.onrender.com)
 
 ## Features
 
-- OTP + Google sign-in
-- Text claim analysis
-- Image analysis via OCR + prediction
-- Link content extraction + prediction
-- Voice transcription + prediction
-- Security controls: CSRF, CORS allowlist, rate limits, upload validation, metadata stripping
+- **Multi-Format Claim Verification:** Verify claims submitted via raw text, screenshots/images (multimodal vision + OCR), web/social links, and voice notes (Whisper transcription).
+- **Source-Grounded Analysis:** Real-time web search grounding via Tavily API and Google Fact Check Tools integration.
+- **Explainable Verdicts:** Generates percentage confidence scores, plain-language explanations, corrected facts, and direct web citations.
+- **Secure Authentication:** Passwordless Email OTP with multi-provider failover (Brevo, Resend, SMTP) and Google One-Tap OAuth.
+- **Token Security:** Short-lived JWT access tokens with rotating `HttpOnly` refresh tokens.
+- **Enterprise-Grade Security:** AES-256-GCM database encryption at rest, sliding-window rate limiting, CSRF protection, and strict CSP/HSTS headers.
 
 ## Tech Stack
 
-- **Frontend:** React + Vite
+- **Frontend:** React + Vite, Tailwind CSS
 - **Backend:** FastAPI + SQLAlchemy
-- **Database:** PostgreSQL (Neon/Supabase compatible), SQLite for local fallback
-- **ML/OCR/Media:** scikit-learn, pytesseract, faster-whisper
+- **Database:** PostgreSQL (Neon/Supabase/Render compatible), SQLite fallback
+- **ML / AI / Media:** Groq (`qwen/qwen3.6-27b`), Google Gemini Vision (`gemini-3.5-flash`), scikit-learn, faster-whisper, pytesseract, Tavily Search API
 
 ## Architecture (high-level)
 
 ```text
-React (Vite)
-  -> HTTPS API calls
-FastAPI backend
+React (Vite SPA on Vercel)
+  -> HTTPS API calls (pre-warmed)
+FastAPI backend (Render Web Service)
   -> Auth, CSRF, CORS, rate-limit, upload safety
   -> Prediction pipeline (shared for text/image/link/voice)
-  -> SQLAlchemy ORM
-PostgreSQL (Neon/Supabase)
+  -> Live web grounding (Tavily) + LLM reasoning (Groq / Gemini)
+  -> SQLAlchemy ORM with AES-256-GCM field encryption
+PostgreSQL Database
 ```
 
 ## Environment Variables
@@ -41,10 +44,11 @@ All sensitive values must come from environment variables only:
 - `JWT_SECRET`
 - `DATA_ENCRYPTION_KEY`
 - `DATABASE_URL`
-- `SMTP_*`
+- `GROQ_API_KEY`
+- `GEMINI_API_KEY`
+- `TAVILY_API_KEY`
+- `BREVO_API_KEY` / `RESEND_API_KEY` / `SMTP_*`
 - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`
-- `GEMINI_API_KEY` (if used)
-- `FACT_CHECK_API_KEY` (if used)
 
 Frontend API URL is environment-driven:
 - `VITE_API_URL` (preferred)
@@ -98,42 +102,20 @@ This creates all required tables via SQLAlchemy models.
 
 ## Deployment Notes
 
-### Frontend (Vercel/Netlify)
+### Frontend (Vercel)
 - Set env vars:
   - `VITE_API_URL=https://<your-backend-domain>`
   - `VITE_GOOGLE_CLIENT_ID=<your-google-client-id>`
-  - CAPTCHA vars if used
 
-### Backend (Render/Railway)
+### Backend (Render)
 - Set env vars from `.env.example`
 - Set `APP_ENV=production`
 - Set `DATABASE_URL` to hosted Postgres URL
 - Set `FRONTEND_ORIGINS` to deployed frontend URL(s)
 - Keep `APP_DEBUG=false`
 
-### Database (Neon/Supabase)
-- Provision Postgres
-- Copy connection string into `DATABASE_URL`
-- Ensure SSL mode (`sslmode=require`) when needed
-
-## Google OAuth Manual Production Step (Required)
-
-After frontend deployment, you must manually update your Google Cloud OAuth client:
-
-- Add production frontend URL to **Authorized JavaScript origins**
-- Add production callback/redirect URL(s) to **Authorized redirect URIs**
-
-This is a manual Google Cloud Console step and is not automated by this repo.
-
-## Operational Note (Free Tiers)
-
-Free-tier backend hosts (Render/Railway) can cold-sleep after inactivity.  
-The first request after idle can be slower. This is expected behavior, not a bug.
-
 ## Security / Git Hygiene
 
 - `.env` is git-ignored.
 - `node_modules/` and `__pycache__/` are git-ignored.
 - Model binaries are git-ignored (`*.joblib`, `*.pkl`, `*.pt`, `*.onnx`).
-- If you later need to store model files over ~50MB, use Git LFS or a separate model download/build step in CI/deploy.
-
