@@ -31,6 +31,7 @@ class ExplanationResult:
     corrected_info: str | None
     sources: list[dict[str, str]] = field(default_factory=list)
     grounded: bool = False
+    is_ai_generated: bool = False
 
 
 class GeminiExplainer:
@@ -449,21 +450,27 @@ class GeminiExplainer:
 
         return (
             f"Current Date: {current_date}\n"
-            "You are a factual verification assistant.\n"
-            "Analyze the user claim and output ONLY valid JSON with this exact schema:\n"
+            "You are an expert fact-checker and synthetic media (AI/Deepfake) verification assistant.\n"
+            "Analyze the user claim/link/media and output ONLY valid JSON with this exact schema:\n"
             "{\n"
-            '  "percentage": <integer 0-100>,\n'
-            '  "verdict": <"LIKELY_REAL" | "LIKELY_FAKE" | "NEEDS_REVIEW" | "INSUFFICIENT_EVIDENCE">,\n'
-            '  "explanation": <array of 2-5 short bullet-style strings>,\n'
-            '  "corrected_info": <string or null>\n'
+            '  "percentage": <integer 0-100: 0-25 for fake/AI generated, 75-100 for verified real>,\n'
+            '  "verdict": <"LIKELY_REAL" | "LIKELY_FAKE" | "AI_GENERATED" | "NEEDS_REVIEW" | "INSUFFICIENT_EVIDENCE">,\n'
+            '  "is_ai_generated": <true if the video, audio, image, or claim involves AI generation, synthetic media, deepfakes, or voice cloning; false otherwise>,\n'
+            '  "explanation": <array of 2-5 short bullet-style strings explaining the verdict and explicitly stating if/why it is AI-generated, fake, or real>,\n'
+            '  "corrected_info": <string with correct fact or null>\n'
             "}\n\n"
-            "Rules:\n"
-            "- If claim is factually wrong, set corrected_info with concise corrected fact.\n"
-            "- If the evidence is weak, conflicting, or absent and you are NOT genuinely confident, "
-            "use verdict INSUFFICIENT_EVIDENCE with percentage 50 and explain what is missing or unclear. "
-            "Do NOT guess or force a percentage — honest uncertainty is better than a fabricated score.\n"
-            "- If you have some evidence but it's mixed, use NEEDS_REVIEW with corrected_info null.\n"
-            "- No markdown. No backticks. JSON only.\n"
+            "CRITICAL CLASSIFICATION & VERDICT RULES:\n"
+            "1. AI_GENERATED verdict (is_ai_generated: true):\n"
+            "   - Use this verdict whenever the content, video, image, or audio clip is created, synthesized, or manipulated by Artificial Intelligence (e.g., AI video generation via Sora/Runway/Pika, Deepfake voice clone, AI avatar, synthetic CGI presented as real footage, Midjourney/Flux image presented as real, AI face-swapping).\n"
+            "   - In the explanation bullets, explicitly state: 'This is an AI-generated video/image/audio and NOT real footage' and describe the AI generation artifacts or fact-checker debunks.\n"
+            "2. LIKELY_FAKE verdict (is_ai_generated: false):\n"
+            "   - Use this verdict when the claim or video is FALSE, fabricated, out of context, miscaptioned old footage, or misinformation, BUT is NOT created by generative AI tools.\n"
+            "3. LIKELY_REAL verdict (is_ai_generated: false):\n"
+            "   - Use this verdict when the claim/media is authentic, verified by credible reporting, and true.\n"
+            "4. INSUFFICIENT_EVIDENCE / NEEDS_REVIEW:\n"
+            "   - Use if evidence is insufficient or mixed. Set percentage 50.\n"
+            "5. If the claim is factually false or AI-generated, provide concise corrected facts in corrected_info.\n"
+            "6. Output ONLY valid JSON starting with {.\n"
             f"{web_search_section}"
             f"{fact_check_section}\n"
             f"User claim: {text}\n"
@@ -627,6 +634,11 @@ class GeminiExplainer:
         else:
             corrected_info = None
 
+        is_ai_raw = payload.get("is_ai_generated")
+        is_ai_generated = bool(is_ai_raw) or verdict in {"AI_GENERATED", "DEEPFAKE", "SYNTHETIC_MEDIA", "AI_GENERATED_MEDIA"}
+        if is_ai_generated:
+            verdict = "AI_GENERATED"
+
         return ExplanationResult(
             percentage=percentage,
             verdict=verdict,
@@ -634,4 +646,5 @@ class GeminiExplainer:
             corrected_info=corrected_info,
             sources=sources or [],
             grounded=grounded,
+            is_ai_generated=is_ai_generated,
         )

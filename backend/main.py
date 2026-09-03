@@ -141,6 +141,7 @@ class PredictResponse(BaseModel):
     corrected_info: str | None = None
     sources: list[dict[str, str]] | None = None
     grounded: bool = False
+    is_ai_generated: bool = False
 
 
 

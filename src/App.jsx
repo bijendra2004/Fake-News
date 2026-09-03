@@ -1177,20 +1177,36 @@ function App() {
 
                   {analysisResult && (
                     <div className={`border p-5 sm:p-6 ${
-                      analysisResult.isInsufficientEvidence
-                        ? 'border-amber-500/30 bg-amber-50/50 dark:border-amber-400/20 dark:bg-amber-950/20'
-                        : 'border-black/15 bg-[#fbfbf8] dark:border-white/15 dark:bg-[#0d0d0d]'
+                      analysisResult.isAiGenerated
+                        ? 'border-purple-500/30 bg-purple-50/50 dark:border-purple-400/20 dark:bg-purple-950/20'
+                        : analysisResult.isInsufficientEvidence
+                          ? 'border-amber-500/30 bg-amber-50/50 dark:border-amber-400/20 dark:bg-amber-950/20'
+                          : 'border-black/15 bg-[#fbfbf8] dark:border-white/15 dark:bg-[#0d0d0d]'
                     }`}>
                       <div className="flex flex-wrap items-end justify-between gap-4">
                         <div>
-                          <div className="font-mono text-xs font-bold uppercase tracking-[0.28em] text-black/45 dark:text-white/45">RESULT</div>
-                          <div className={`mt-2 text-3xl font-black uppercase tracking-tight ${
-                            analysisResult.isInsufficientEvidence
-                              ? 'text-amber-600 dark:text-amber-400'
-                              : 'text-black dark:text-white'
-                          }`}>
-                            {analysisResult.isInsufficientEvidence ? 'INSUFFICIENT EVIDENCE' : analysisResult.verdict}
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-xs font-bold uppercase tracking-[0.28em] text-black/45 dark:text-white/45">RESULT</span>
+                            {analysisResult.isAiGenerated && (
+                              <span className="inline-flex items-center gap-1 border border-purple-500/40 bg-purple-500/10 px-2 py-0.5 font-mono text-[0.65rem] font-black uppercase tracking-wider text-purple-700 dark:border-purple-400/30 dark:bg-purple-950/50 dark:text-purple-300">
+                                🤖 AI GENERATED / DEEPFAKE
+                              </span>
+                            )}
                           </div>
+                          <div className={`mt-2 text-3xl font-black uppercase tracking-tight ${
+                            analysisResult.isAiGenerated
+                              ? 'text-purple-700 dark:text-purple-400'
+                              : analysisResult.isInsufficientEvidence
+                                ? 'text-amber-600 dark:text-amber-400'
+                                : 'text-black dark:text-white'
+                          }`}>
+                            {analysisResult.isAiGenerated ? 'AI GENERATED MEDIA' : analysisResult.isInsufficientEvidence ? 'INSUFFICIENT EVIDENCE' : analysisResult.verdict}
+                          </div>
+                          {analysisResult.isAiGenerated && (
+                            <div className="mt-1 font-sans text-sm font-medium text-purple-700/90 dark:text-purple-300/80">
+                              ⚠️ Synthetic / Deepfake media detected: This video or image was generated using AI tools and is not authentic real footage.
+                            </div>
+                          )}
                           {analysisResult.isInsufficientEvidence && (
                             <div className="mt-1 font-sans text-sm text-amber-700/80 dark:text-amber-300/70">
                               We couldn't confidently verify this claim — here's what we found
@@ -1198,11 +1214,13 @@ function App() {
                           )}
                         </div>
                         <div className={`font-mono text-5xl font-black uppercase tracking-tight ${
-                          analysisResult.isInsufficientEvidence
-                            ? 'text-amber-500/70 dark:text-amber-400/60'
-                            : analysisResult.verdict?.toUpperCase()?.includes('REAL')
-                              ? 'text-emerald-600 dark:text-emerald-400'
-                              : 'text-[#ef4444]'
+                          analysisResult.isAiGenerated
+                            ? 'text-purple-600 dark:text-purple-400'
+                            : analysisResult.isInsufficientEvidence
+                              ? 'text-amber-500/70 dark:text-amber-400/60'
+                              : analysisResult.verdict?.toUpperCase()?.includes('REAL')
+                                ? 'text-emerald-600 dark:text-emerald-400'
+                                : 'text-[#ef4444]'
                         }`}>
                           {analysisResult.score}
                         </div>
@@ -1594,7 +1612,11 @@ function formatPredictionResult(prediction) {
   if (prediction && Array.isArray(prediction.explanation) && typeof prediction.percentage !== 'undefined') {
     const parsedPercentage = Number(prediction.percentage)
     const safePercentage = Number.isFinite(parsedPercentage) ? Math.max(0, Math.min(100, Math.round(parsedPercentage))) : 0
-    const verdictText = String(prediction.verdict || '').replaceAll('_', ' ').trim()
+    let verdictText = String(prediction.verdict || '').replaceAll('_', ' ').trim()
+    const isAi = Boolean(prediction.is_ai_generated) || verdictText.toUpperCase().includes('AI GENERATED') || verdictText.toUpperCase().includes('DEEPFAKE') || verdictText.toUpperCase().includes('SYNTHETIC')
+    if (isAi) {
+      verdictText = 'AI GENERATED'
+    }
     const isInsufficient = verdictText.toUpperCase() === 'INSUFFICIENT EVIDENCE'
     return {
       verdict: verdictText || 'NEEDS REVIEW',
@@ -1608,9 +1630,18 @@ function formatPredictionResult(prediction) {
         prediction && typeof prediction.extracted_text === 'string' && prediction.extracted_text.trim()
           ? prediction.extracted_text
           : null,
+      transcript:
+        prediction && typeof prediction.transcript === 'string' && prediction.transcript.trim()
+          ? prediction.transcript
+          : null,
+      source_domain:
+        prediction && typeof prediction.source_domain === 'string' && prediction.source_domain.trim()
+          ? prediction.source_domain
+          : null,
       sources: Array.isArray(prediction.sources) ? prediction.sources : [],
       grounded: !!prediction.grounded,
       isInsufficientEvidence: isInsufficient,
+      isAiGenerated: isAi,
     }
   }
 
