@@ -224,6 +224,54 @@ def _analyze_image_gemini(image_path: Path, api_key: str, user_context: str = ""
     raise MediaProcessingError("Could not analyze image with vision model")
 
 
+def _transcribe_audio_groq(audio_path: Path, groq_key: str) -> str:
+    """Transcribe audio clip using Groq Whisper Large V3 Turbo in ~0.3-0.5s."""
+    import mimetypes
+    mime_type, _ = mimetypes.guess_type(str(audio_path))
+    if not mime_type or not mime_type.startswith("audio/"):
+        mime_type = "audio/webm"
+
+    with open(audio_path, "rb") as f:
+        file_bytes = f.read()
+
+    boundary = "----SachLensBoundary" + os.urandom(8).hex()
+    body = bytearray()
+
+    # Model parameter
+    body.extend(f"--{boundary}\r\n".encode("utf-8"))
+    body.extend(b'Content-Disposition: form-data; name="model"\r\n\r\n')
+    body.extend(b"whisper-large-v3-turbo\r\n")
+
+    # Response format parameter
+    body.extend(f"--{boundary}\r\n".encode("utf-8"))
+    body.extend(b'Content-Disposition: form-data; name="response_format"\r\n\r\n')
+    body.extend(b"json\r\n")
+
+    # File parameter
+    filename = audio_path.name or "audio.webm"
+    body.extend(f"--{boundary}\r\n".encode("utf-8"))
+    body.extend(f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'.encode("utf-8"))
+    body.extend(f"Content-Type: {mime_type}\r\n\r\n".encode("utf-8"))
+    body.extend(file_bytes)
+    body.extend(b"\r\n")
+    body.extend(f"--{boundary}--\r\n".encode("utf-8"))
+
+    req = urllib.request.Request(
+        "https://api.groq.com/openai/v1/audio/transcriptions",
+        data=bytes(body),
+        headers={
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Authorization": f"Bearer {groq_key}",
+            "User-Agent": "SachLens/1.0",
+        },
+        method="POST",
+    )
+
+    with urllib.request.urlopen(req, timeout=12) as response:
+        data = json.loads(response.read().decode("utf-8"))
+        return data.get("text", "").strip()
+
+
 @lru_cache(maxsize=1)
 def _whisper_model() -> Any:
     from faster_whisper import WhisperModel
@@ -232,12 +280,27 @@ def _whisper_model() -> Any:
 
 
 def transcribe_audio_file(audio_path: Path) -> str:
-    try:
-        model = _whisper_model()
-        segments, _info = model.transcribe(str(audio_path), beam_size=1, vad_filter=True)
-        transcript = " ".join(segment.text.strip() for segment in segments if segment.text.strip())
-    except Exception as error:
-        raise MediaProcessingError("Failed to transcribe the audio clip") from error
+    transcript = ""
+
+    # 1. Primary: Lightning-fast cloud Whisper Large V3 Turbo on Groq (0.3-0.5s)
+    groq_key = (os.getenv("GROQ_API_KEY") or "").strip()
+    if groq_key:
+        try:
+            transcript = _transcribe_audio_groq(audio_path, groq_key)
+            if transcript:
+                logger.info("Groq Whisper transcribed audio in ~0.3s: %s", transcript[:80])
+        except Exception as error:
+            logger.warning("Groq Whisper API call failed (%s) — falling back to local model", error)
+            transcript = ""
+
+    # 2. Fallback: Local faster-whisper CPU model
+    if not transcript:
+        try:
+            model = _whisper_model()
+            segments, _info = model.transcribe(str(audio_path), beam_size=1, vad_filter=True)
+            transcript = " ".join(segment.text.strip() for segment in segments if segment.text.strip())
+        except Exception as error:
+            raise MediaProcessingError("Failed to transcribe the audio clip") from error
 
     normalized = normalize_text(transcript)
     if not normalized:
