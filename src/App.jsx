@@ -74,16 +74,19 @@ function App() {
   useEffect(() => {
     const fingerprint = createDeviceFingerprint()
     setDeviceFingerprint(fingerprint)
-    // Pre-warm backend and silently restore persistent session if a valid refresh cookie exists
+    // Pre-warm backend and silently restore persistent session if a valid session exists
     if (API_BASE_URL) {
       fetch(`${API_BASE_URL}/api/health`).catch(() => {})
+      const savedRefreshToken = typeof window !== 'undefined' ? localStorage.getItem('sachlens_refresh_token') : null
       fetch(`${API_BASE_URL}/api/auth/refresh`, {
         method: 'POST',
         headers: {
+          'Content-Type': 'application/json',
           'X-Device-Fingerprint': fingerprint,
           ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
         },
         credentials: 'include',
+        body: JSON.stringify({ refresh_token: savedRefreshToken || undefined }),
       })
         .then(async (response) => {
           if (response.ok) {
@@ -91,7 +94,12 @@ function App() {
             if (data.access_token) {
               setAccessToken(data.access_token)
               if (data.email) setAccountEmail(data.email)
+              if (data.refresh_token) {
+                localStorage.setItem('sachlens_refresh_token', data.refresh_token)
+              }
             }
+          } else if (response.status === 401) {
+            localStorage.removeItem('sachlens_refresh_token')
           }
         })
         .catch(() => {})
@@ -425,6 +433,9 @@ function App() {
       const payload = await response.json()
       setAccessToken(payload.access_token)
       setAccountEmail(payload.email || email)
+      if (payload.refresh_token) {
+        localStorage.setItem('sachlens_refresh_token', payload.refresh_token)
+      }
       setShowLoginPrompt(false)
       setAuthStep('email')
       setAuthOtp('')
@@ -464,6 +475,9 @@ function App() {
 
       setAccessToken(payload.access_token)
       setAccountEmail(payload.email || decodeJwtEmail(credential) || '')
+      if (payload.refresh_token) {
+        localStorage.setItem('sachlens_refresh_token', payload.refresh_token)
+      }
       setShowLoginPrompt(false)
       setAuthStep('email')
       setAuthOtp('')
@@ -511,6 +525,9 @@ function App() {
     setAuthStep('email')
     setAuthOtp('')
     setResendSecondsLeft(0)
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('sachlens_refresh_token')
+    }
 
     // Clear all inputs, contexts, and searched data
     setTextValue('')

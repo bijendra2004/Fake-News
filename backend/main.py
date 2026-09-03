@@ -156,6 +156,11 @@ class OtpVerifyBody(BaseModel):
 class AuthTokensResponse(BaseModel):
     access_token: str
     email: str | None = None
+    refresh_token: str | None = None
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str | None = None
 
 
 class GoogleAuthRequest(BaseModel):
@@ -348,7 +353,7 @@ def otp_verify(request: Request, payload: OtpVerifyBody, response: Response, db:
     access_token = create_access_token(email)
     refresh_token = rotate_refresh_token(email, db, device_fingerprint=device_fingerprint)
     set_refresh_cookie(response, refresh_token)
-    return AuthTokensResponse(access_token=access_token, email=email)
+    return AuthTokensResponse(access_token=access_token, email=email, refresh_token=refresh_token)
 
 
 @app.post("/api/auth/google", response_model=AuthTokensResponse)
@@ -366,12 +371,17 @@ def google_auth(request: Request, payload: GoogleAuthRequest, response: Response
     access_token = create_access_token(email)
     refresh_token = rotate_refresh_token(email, db, device_fingerprint=device_fingerprint)
     set_refresh_cookie(response, refresh_token)
-    return AuthTokensResponse(access_token=access_token, email=email)
+    return AuthTokensResponse(access_token=access_token, email=email, refresh_token=refresh_token)
 
 
 @app.post("/api/auth/refresh", response_model=AuthTokensResponse)
-def refresh_tokens(request: Request, response: Response, db: Session = Depends(get_db)) -> AuthTokensResponse:
-    refresh_token = request.cookies.get("refresh_token")
+def refresh_tokens(
+    request: Request,
+    response: Response,
+    payload: RefreshTokenRequest | None = None,
+    db: Session = Depends(get_db),
+) -> AuthTokensResponse:
+    refresh_token = (payload.refresh_token if payload and payload.refresh_token else None) or request.cookies.get("refresh_token")
     if not refresh_token:
         raise HTTPException(status_code=401, detail={"detail": "Missing refresh token", "requires_login": True})
 
@@ -386,7 +396,7 @@ def refresh_tokens(request: Request, response: Response, db: Session = Depends(g
         email, db, old_token=refresh_token, device_fingerprint=device_fingerprint
     )
     set_refresh_cookie(response, rotated_refresh_token)
-    return AuthTokensResponse(access_token=access_token, email=email)
+    return AuthTokensResponse(access_token=access_token, email=email, refresh_token=rotated_refresh_token)
 
 
 @app.post("/api/auth/logout", response_model=LogoutResponse)
@@ -562,12 +572,19 @@ async def store_analysis_upload(file: UploadFile, allowed_kinds: set[str]) -> Pa
 
 
 def set_refresh_cookie(response: Response, refresh_token: str) -> None:
+    is_prod = (
+        os.getenv("APP_ENV", "").strip().lower() == "production"
+        or "render.com" in os.getenv("RENDER_EXTERNAL_URL", "")
+        or settings.cookie_secure
+    )
+    cookie_secure = True if is_prod else settings.cookie_secure
+    cookie_samesite = "none" if is_prod else settings.cookie_samesite
     response.set_cookie(
         key="refresh_token",
         value=refresh_token,
         httponly=True,
-        secure=settings.cookie_secure,
-        samesite=settings.cookie_samesite,
+        secure=cookie_secure,
+        samesite=cookie_samesite,
         max_age=60 * 60 * 24 * 30,
         path="/",
     )
