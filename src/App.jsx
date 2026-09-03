@@ -56,9 +56,22 @@ function App() {
   const [csrfToken, setCsrfToken] = useState('')
   const [requiresCaptcha, setRequiresCaptcha] = useState(false)
   const [captchaToken, setCaptchaToken] = useState('')
+  const [greetingInfo, setGreetingInfo] = useState(() => getGreetingDetails())
   const captchaContainerRef = useRef(null)
   const accountMenuRef = useRef(null)
   const googleAuthTimeoutRef = useRef(0)
+
+  useEffect(() => {
+    const updateGreeting = () => setGreetingInfo(getGreetingDetails())
+    const interval = window.setInterval(updateGreeting, 60000)
+    return () => window.clearInterval(interval)
+  }, [])
+
+  const userFirstName = useMemo(() => {
+    if (!accessToken || !accountEmail) return ''
+    const storedName = typeof window !== 'undefined' ? (localStorage.getItem('sachlens_account_name') || '') : ''
+    return extractFirstName(accountEmail, storedName)
+  }, [accessToken, accountEmail])
 
   const fileInputRef = useRef(null)
   const mediaRecorderRef = useRef(null)
@@ -496,12 +509,17 @@ function App() {
         throw new Error(formatApiError(payload, 'Google sign-in failed.'))
       }
 
-      const emailVal = payload.email || decodeJwtEmail(credential) || ''
+      const profile = decodeJwtProfile(credential)
+      const emailVal = payload.email || profile.email || ''
+      const nameVal = profile.given_name || profile.name || ''
       setAccessToken(payload.access_token)
       setAccountEmail(emailVal)
       if (typeof window !== 'undefined') {
         localStorage.setItem('sachlens_access_token', payload.access_token)
         localStorage.setItem('sachlens_account_email', emailVal)
+        if (nameVal) {
+          localStorage.setItem('sachlens_account_name', nameVal)
+        }
         if (payload.refresh_token) {
           localStorage.setItem('sachlens_refresh_token', payload.refresh_token)
         }
@@ -556,6 +574,7 @@ function App() {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('sachlens_access_token')
       localStorage.removeItem('sachlens_account_email')
+      localStorage.removeItem('sachlens_account_name')
       localStorage.removeItem('sachlens_refresh_token')
     }
 
@@ -899,8 +918,8 @@ function App() {
         <section className="hero-grid relative overflow-hidden border-b border-black/10 bg-[#f7f6f2] dark:border-white/10 dark:bg-[#0f0f0f]">
           <div className="absolute inset-0 opacity-[0.55] dark:opacity-[0.28]" aria-hidden="true" />
           <div className="relative mx-auto max-w-7xl px-4 py-14 sm:px-6 sm:py-20 lg:px-8 lg:py-24">
-            <div className="max-w-3xl">
-              <div className="mb-6 flex flex-wrap items-center gap-3">
+            <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-wrap items-center gap-3">
                 <span className="border border-black bg-black px-3 py-1 font-mono text-xs font-bold uppercase tracking-[0.32em] text-white">
                   V0.1 · BETA
                 </span>
@@ -908,6 +927,20 @@ function App() {
                   VERIFY BEFORE YOU SHARE
                 </span>
               </div>
+
+              {/* Top-Right Personalized Greeting */}
+              {accessToken && userFirstName && (
+                <div className="flex items-center gap-2 font-mono text-sm tracking-wide text-black/80 dark:text-white/80 sm:text-base">
+                  <span className="text-base sm:text-lg" aria-hidden="true">{greetingInfo.icon}</span>
+                  <span className="font-normal text-black/85 dark:text-white/85">
+                    {greetingInfo.text},{' '}
+                    <span className="font-semibold text-[#ef4444]">{userFirstName}</span>
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div className="max-w-3xl">
 
               <h1 className="max-w-4xl font-sans text-[clamp(3rem,8vw,4.5rem)] font-black uppercase leading-[0.92] tracking-tight text-black dark:text-white">
                 <span className="block">Verify claims,</span>
@@ -1616,32 +1649,60 @@ function formatSeconds(value) {
 }
 
 function ShieldCheckIcon() {
-  function UserIcon({ className = 'h-4 w-4' }) {
-    return (
-      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className={className}>
-        <path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z" stroke="currentColor" strokeWidth="1.8" />
-        <path d="M5.5 20a6.5 6.5 0 0 1 13 0" stroke="currentColor" strokeWidth="1.8" strokeLinecap="square" />
-      </svg>
-    )
-  }
-  function decodeJwtEmail(token) {
-    try {
-      const payload = token.split('.')[1]
-      if (!payload) return ''
-      const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
-      const json = atob(base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '='))
-      const decoded = JSON.parse(json)
-      return typeof decoded.sub === 'string' ? decoded.sub : ''
-    } catch {
-      return ''
-    }
-  }
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className="h-5 w-5">
       <path d="M12 3l7 3v5c0 4.9-3.1 8.7-7 10-3.9-1.3-7-5.1-7-10V6l7-3z" stroke="currentColor" strokeWidth="1.8" />
       <path d="M8.5 12.3l2.2 2.2 4.9-5.2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="square" strokeLinejoin="miter" />
     </svg>
   )
+}
+
+function getGreetingDetails(date = new Date()) {
+  const hours = date.getHours()
+  if (hours >= 5 && hours < 12) {
+    return { text: 'Good morning', icon: '☀️' }
+  }
+  if (hours >= 12 && hours < 17) {
+    return { text: 'Good afternoon', icon: '☀️' }
+  }
+  return { text: 'Good evening', icon: '🌙' }
+}
+
+function extractFirstName(email = '', fullName = '', givenName = '') {
+  if (givenName && givenName.trim()) {
+    const clean = givenName.trim().split(/\s+/)[0]
+    return clean.charAt(0).toUpperCase() + clean.slice(1)
+  }
+  if (fullName && fullName.trim()) {
+    const clean = fullName.trim().split(/\s+/)[0]
+    return clean.charAt(0).toUpperCase() + clean.slice(1)
+  }
+  if (!email || typeof email !== 'string') return ''
+  const username = (email.includes('@') ? email.split('@')[0] : email).trim()
+  if (!username) return ''
+  const firstPart = username.split(/[._\-+]/)[0] || username
+  const stripped = firstPart.replace(/\d+$/, '') || firstPart
+  if (stripped.length > 0) {
+    return stripped.charAt(0).toUpperCase() + stripped.slice(1).toLowerCase()
+  }
+  return username
+}
+
+function decodeJwtProfile(token) {
+  try {
+    const payload = token.split('.')[1]
+    if (!payload) return { email: '', name: '', given_name: '' }
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const json = atob(base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '='))
+    const decoded = JSON.parse(json)
+    return {
+      email: typeof decoded.email === 'string' ? decoded.email : (typeof decoded.sub === 'string' ? decoded.sub : ''),
+      name: typeof decoded.name === 'string' ? decoded.name : '',
+      given_name: typeof decoded.given_name === 'string' ? decoded.given_name : '',
+    }
+  } catch {
+    return { email: '', name: '', given_name: '' }
+  }
 }
 
 function UserIcon({ className = 'h-4 w-4' }) {
