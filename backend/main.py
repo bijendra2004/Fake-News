@@ -381,7 +381,12 @@ def refresh_tokens(
     payload: RefreshTokenRequest | None = None,
     db: Session = Depends(get_db),
 ) -> AuthTokensResponse:
-    refresh_token = (payload.refresh_token if payload and payload.refresh_token else None) or request.cookies.get("refresh_token")
+    refresh_token = (
+        (payload.refresh_token if payload and payload.refresh_token else None)
+        or request.headers.get("X-Refresh-Token")
+        or request.headers.get("x-refresh-token")
+        or request.cookies.get("refresh_token")
+    )
     if not refresh_token:
         raise HTTPException(status_code=401, detail={"detail": "Missing refresh token", "requires_login": True})
 

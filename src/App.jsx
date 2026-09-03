@@ -33,8 +33,18 @@ function App() {
   const [showLoginPrompt, setShowLoginPrompt] = useState(false)
   const [mediaError, setMediaError] = useState('')
   const [deviceFingerprint, setDeviceFingerprint] = useState('')
-  const [accessToken, setAccessToken] = useState('')
-  const [accountEmail, setAccountEmail] = useState('')
+  const [accessToken, setAccessToken] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('sachlens_access_token') || ''
+    }
+    return ''
+  })
+  const [accountEmail, setAccountEmail] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('sachlens_account_email') || ''
+    }
+    return ''
+  })
   const [authStep, setAuthStep] = useState('email')
   const [authEmail, setAuthEmail] = useState('')
   const [authOtp, setAuthOtp] = useState('')
@@ -74,35 +84,51 @@ function App() {
   useEffect(() => {
     const fingerprint = createDeviceFingerprint()
     setDeviceFingerprint(fingerprint)
-    // Pre-warm backend and silently restore persistent session if a valid session exists
+    // Pre-warm backend and validate / restore active session
     if (API_BASE_URL) {
       fetch(`${API_BASE_URL}/api/health`).catch(() => {})
       const savedRefreshToken = typeof window !== 'undefined' ? localStorage.getItem('sachlens_refresh_token') : null
-      fetch(`${API_BASE_URL}/api/auth/refresh`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Device-Fingerprint': fingerprint,
-          ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
-        },
-        credentials: 'include',
-        body: JSON.stringify({ refresh_token: savedRefreshToken || undefined }),
-      })
-        .then(async (response) => {
-          if (response.ok) {
-            const data = await response.json()
-            if (data.access_token) {
-              setAccessToken(data.access_token)
-              if (data.email) setAccountEmail(data.email)
-              if (data.refresh_token) {
-                localStorage.setItem('sachlens_refresh_token', data.refresh_token)
-              }
-            }
-          } else if (response.status === 401) {
-            localStorage.removeItem('sachlens_refresh_token')
-          }
+      const savedAccessToken = typeof window !== 'undefined' ? localStorage.getItem('sachlens_access_token') : null
+
+      if (savedRefreshToken || savedAccessToken) {
+        fetch(`${API_BASE_URL}/api/auth/refresh`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Device-Fingerprint': fingerprint,
+            ...(savedRefreshToken ? { 'X-Refresh-Token': savedRefreshToken } : {}),
+            ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
+          },
+          credentials: 'include',
+          body: JSON.stringify({ refresh_token: savedRefreshToken || undefined }),
         })
-        .catch(() => {})
+          .then(async (response) => {
+            if (response.ok) {
+              const data = await response.json()
+              if (data.access_token) {
+                setAccessToken(data.access_token)
+                localStorage.setItem('sachlens_access_token', data.access_token)
+                if (data.email) {
+                  setAccountEmail(data.email)
+                  localStorage.setItem('sachlens_account_email', data.email)
+                }
+                if (data.refresh_token) {
+                  localStorage.setItem('sachlens_refresh_token', data.refresh_token)
+                }
+              }
+            } else if (response.status === 401) {
+              // Server confirmed session is expired or revoked
+              setAccessToken('')
+              setAccountEmail('')
+              localStorage.removeItem('sachlens_access_token')
+              localStorage.removeItem('sachlens_account_email')
+              localStorage.removeItem('sachlens_refresh_token')
+            }
+          })
+          .catch(() => {
+            // Transient network failure or backend cold start: retain local session so user is not interrupted
+          })
+      }
     }
   }, [csrfToken])
 
@@ -433,8 +459,12 @@ function App() {
       const payload = await response.json()
       setAccessToken(payload.access_token)
       setAccountEmail(payload.email || email)
-      if (payload.refresh_token) {
-        localStorage.setItem('sachlens_refresh_token', payload.refresh_token)
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('sachlens_access_token', payload.access_token)
+        localStorage.setItem('sachlens_account_email', payload.email || email)
+        if (payload.refresh_token) {
+          localStorage.setItem('sachlens_refresh_token', payload.refresh_token)
+        }
       }
       setShowLoginPrompt(false)
       setAuthStep('email')
@@ -473,10 +503,15 @@ function App() {
         throw new Error(formatApiError(payload, 'Google sign-in failed.'))
       }
 
+      const emailVal = payload.email || decodeJwtEmail(credential) || ''
       setAccessToken(payload.access_token)
-      setAccountEmail(payload.email || decodeJwtEmail(credential) || '')
-      if (payload.refresh_token) {
-        localStorage.setItem('sachlens_refresh_token', payload.refresh_token)
+      setAccountEmail(emailVal)
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('sachlens_access_token', payload.access_token)
+        localStorage.setItem('sachlens_account_email', emailVal)
+        if (payload.refresh_token) {
+          localStorage.setItem('sachlens_refresh_token', payload.refresh_token)
+        }
       }
       setShowLoginPrompt(false)
       setAuthStep('email')
@@ -526,6 +561,8 @@ function App() {
     setAuthOtp('')
     setResendSecondsLeft(0)
     if (typeof window !== 'undefined') {
+      localStorage.removeItem('sachlens_access_token')
+      localStorage.removeItem('sachlens_account_email')
       localStorage.removeItem('sachlens_refresh_token')
     }
 
