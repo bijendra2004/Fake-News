@@ -61,8 +61,25 @@ class GeminiExplainer:
     def explain(self, text: str, classifier_signal: dict[str, Any]) -> ExplanationResult:
         self.ensure_configured()
 
-        # --- Pre-step 1: Tavily web search for real-time grounding ---
-        tavily_results = self._search_tavily(text)
+        # Run Tavily search and Google Fact Check API concurrently
+        import concurrent.futures
+        tavily_results: list[dict[str, Any]] = []
+        fact_check_results: list[dict[str, str]] = []
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            tavily_future = executor.submit(self._search_tavily, text)
+            fact_check_future = executor.submit(self._query_fact_check_api, text)
+            try:
+                tavily_results = tavily_future.result(timeout=6)
+            except Exception as e:
+                logger.warning("Tavily search parallel task failed: %s", e)
+                tavily_results = []
+            try:
+                fact_check_results = fact_check_future.result(timeout=6)
+            except Exception as e:
+                logger.warning("Fact Check parallel task failed: %s", e)
+                fact_check_results = []
+
         grounded = len(tavily_results) > 0
         sources: list[dict[str, str]] = [
             {"title": r.get("title", ""), "url": r.get("url", "")}
@@ -72,9 +89,6 @@ class GeminiExplainer:
             logger.info("Tavily search returned %d results for grounding", len(tavily_results))
         else:
             logger.info("Tavily search returned no results — proceeding without grounding")
-
-        # --- Pre-step 2: query Fact Check Tools API for existing verdicts ---
-        fact_check_results = self._query_fact_check_api(text)
 
         # --- Build prompt with Tavily context injected ---
         prompt = self._build_prompt(
@@ -88,13 +102,7 @@ class GeminiExplainer:
 
         logger.info("LLM raw text output: %s", text_output[:500])
         parsed = self._parse_response_json(text_output)
-        first_pass = self._validate_response(parsed, sources=sources, grounded=grounded)
-
-        # --- Self-verification second pass ---
-        verified = self._self_verify(first_pass, text, sources)
-        if verified is not None:
-            return verified
-        return first_pass
+        return self._validate_response(parsed, sources=sources, grounded=grounded)
 
     def _search_tavily(self, query: str) -> list[dict[str, Any]]:
         """Search the web using Tavily API for real-time grounding context.
@@ -161,74 +169,70 @@ class GeminiExplainer:
             return self._extract_text_output(response_payload)
 
     def _call_groq(self, prompt: str, *, temperature: float = 0.2) -> str:
-        """Call Groq's OpenAI-compatible chat completions API.
+        """Call Groq's OpenAI-compatible chat completions API with multi-model rate-limit fallback."""
+        models_to_try: list[str] = []
+        for m in [self.groq_model, "qwen/qwen3.8-27b", "openai/gpt-oss-20b", "groq/compound-mini"]:
+            norm = m.strip()
+            if norm and norm not in models_to_try:
+                models_to_try.append(norm)
 
-        Returns the raw text content from the assistant message.
-        Raises GeminiExplanationError on failure.
-        """
-        payload = {
-            "model": self.groq_model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a factual verification assistant. "
-                        "Output ONLY valid JSON. No markdown, no backticks, no thinking text, no preamble. "
-                        "Start your response directly with the opening { brace."
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": temperature,
-            "max_tokens": 4096,
-        }
-
-        logger.info("Calling Groq API: model=%s", self.groq_model)
-
-        import time as _time
         last_error: Exception | None = None
 
-        for attempt in range(3):
-            try:
-                req = urllib.request.Request(
-                    "https://api.groq.com/openai/v1/chat/completions",
-                    data=json.dumps(payload).encode("utf-8"),
-                    headers={
-                        "Content-Type": "application/json",
-                        "Authorization": f"Bearer {self.groq_api_key}",
-                        "User-Agent": "SachLens/1.0",
+        for model_name in models_to_try:
+            payload = {
+                "model": model_name,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a factual verification assistant. "
+                            "Output ONLY valid JSON. No markdown, no backticks, no thinking text, no preamble. "
+                            "Start your response directly with the opening { brace."
+                        ),
                     },
-                )
-                with urllib.request.urlopen(req, timeout=45) as response:
-                    data = json.loads(response.read().decode("utf-8"))
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": temperature,
+                "max_tokens": 2048,
+            }
 
-                content = data["choices"][0]["message"]["content"]
-                logger.info("Groq API succeeded (attempt %d), response length=%d", attempt + 1, len(content))
-                return content
+            for attempt in range(2):
+                try:
+                    req = urllib.request.Request(
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        data=json.dumps(payload).encode("utf-8"),
+                        headers={
+                            "Content-Type": "application/json",
+                            "Authorization": f"Bearer {self.groq_api_key}",
+                            "User-Agent": "SachLens/1.0",
+                        },
+                    )
+                    with urllib.request.urlopen(req, timeout=15) as response:
+                        data = json.loads(response.read().decode("utf-8"))
 
-            except urllib.error.HTTPError as e:
-                error_body = e.read().decode("utf-8", errors="ignore") if e.fp else ""
-                logger.error(
-                    "Groq API failed: status=%s body=%s", e.code, error_body[:300],
-                )
-                if e.code == 429:
-                    raise GeminiExplanationError(
-                        "Groq rate limit exceeded — please try again in a minute"
-                    ) from e
-                raise GeminiExplanationError(
-                    f"Groq API error (HTTP {e.code}): {error_body[:200]}"
-                ) from e
-            except (TimeoutError, OSError) as e:
-                last_error = e
-                logger.warning("Groq API timeout (attempt %d/3): %s", attempt + 1, e)
-                if attempt < 2:
-                    _time.sleep(2)
-                continue
-            except Exception as e:
-                logger.exception("Groq API request failed")
-                raise GeminiExplanationError(f"Groq API request failed: {e}") from e
+                    content = data["choices"][0]["message"]["content"]
+                    logger.info("Groq API succeeded on model=%s (attempt %d)", model_name, attempt + 1)
+                    return content
 
-        raise GeminiExplanationError(f"Groq API request failed after 3 attempts: {last_error}") from last_error
+                except urllib.error.HTTPError as e:
+                    error_body = e.read().decode("utf-8", errors="ignore") if e.fp else ""
+                    logger.warning(
+                        "Groq API error on model=%s: HTTP %s (%s) — trying fallback model",
+                        model_name, e.code, error_body[:150],
+                    )
+                    last_error = e
+                    # Break attempt loop to switch to next fallback model immediately
+                    break
+                except (TimeoutError, OSError) as e:
+                    last_error = e
+                    logger.warning("Groq API timeout on model=%s (attempt %d/2): %s", model_name, attempt + 1, e)
+                    continue
+                except Exception as e:
+                    logger.exception("Groq API request failed on model=%s", model_name)
+                    last_error = e
+                    break
+
+        raise GeminiExplanationError(f"Groq API failed across all available models: {last_error}") from last_error
 
     def _request_with_fallback(
         self, request_body: bytes, *, grounding_active: bool = False
@@ -535,9 +539,12 @@ class GeminiExplainer:
         cleaned = re.sub(r"<think>.*?</think>", "", cleaned, flags=re.DOTALL).strip()
 
         # Strip markdown code fences
-        if cleaned.startswith("```"):
-            cleaned = cleaned.strip("`")
-            cleaned = cleaned.replace("json", "", 1).strip()
+        if "```" in cleaned:
+            match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", cleaned, flags=re.DOTALL)
+            if match:
+                cleaned = match.group(1).strip()
+            else:
+                cleaned = cleaned.replace("```json", "").replace("```", "").strip()
 
         # Try to extract JSON object if there's surrounding text
         if not cleaned.startswith("{"):
@@ -547,10 +554,34 @@ class GeminiExplainer:
 
         try:
             parsed = json.loads(cleaned)
-        except json.JSONDecodeError as error:
-            raise GeminiExplanationError(
-                f"LLM returned invalid JSON: {cleaned[:200]}"
-            ) from error
+        except json.JSONDecodeError:
+            # Attempt JSON auto-repair for truncated output (e.g. unclosed array or braces)
+            try:
+                repaired = cleaned
+                if repaired.count('"') % 2 != 0:
+                    repaired += '"'
+                if repaired.count('[') > repaired.count(']'):
+                    repaired += ']'
+                if repaired.count('{') > repaired.count('}'):
+                    repaired += '}'
+                parsed = json.loads(repaired)
+            except Exception:
+                # Regex fallback extraction
+                pct_match = re.search(r'"percentage"\s*:\s*(\d+)', cleaned)
+                verdict_match = re.search(r'"verdict"\s*:\s*"([^"]+)"', cleaned)
+                expl_match = re.findall(r'"([^"\\]*(?:\\.[^"\\]*)*)"', cleaned)
+                if pct_match and verdict_match:
+                    parsed = {
+                        "percentage": int(pct_match.group(1)),
+                        "verdict": verdict_match.group(1),
+                        "explanation": [e for e in expl_match if len(e) > 15 and e != verdict_match.group(1)][:4] or ["Analysis based on available search evidence."],
+                        "corrected_info": None,
+                    }
+                else:
+                    raise GeminiExplanationError(
+                        f"LLM returned invalid JSON: {cleaned[:200]}"
+                    )
+
         if not isinstance(parsed, dict):
             raise GeminiExplanationError("LLM response JSON must be an object")
         return parsed

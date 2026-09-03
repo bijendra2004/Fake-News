@@ -252,7 +252,7 @@ def predict(request: Request, payload: PredictRequest, db: Session = Depends(get
 
 
 @app.post("/api/predict-image", response_model=PredictMediaResponse)
-async def predict_image(
+def predict_image(
     request: Request,
     file: UploadFile = File(...),
     context: str | None = Form(None),
@@ -261,7 +261,7 @@ async def predict_image(
     # Require authentication before doing expensive upload processing
     if not get_authenticated_email(request):
         raise HTTPException(status_code=401, detail={"requires_login": True})
-    stored_file = await store_analysis_upload(file, {"png", "jpeg", "gif", "webp"})
+    stored_file = store_analysis_upload(file, {"png", "jpeg", "gif", "webp"})
     try:
         try:
             extracted_text = extract_text_from_image(stored_file, user_context=context)
@@ -292,14 +292,20 @@ async def predict_image(
 
 
 @app.post("/api/predict-voice", response_model=PredictMediaResponse)
-async def predict_voice(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)) -> PredictMediaResponse:
-    stored_file = await store_analysis_upload(file, {"wav", "mp3", "webm", "mp4"})
+def predict_voice(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)) -> PredictMediaResponse:
+    stored_file = store_analysis_upload(file, {"wav", "mp3", "webm", "mp4"})
     try:
         transcript = transcribe_audio_file(stored_file)
         prediction = predict_from_text(request, transcript, db)
         return PredictMediaResponse(**prediction.model_dump(), transcript=transcript)
     except MediaProcessingError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+    finally:
+        try:
+            if stored_file.exists():
+                stored_file.unlink()
+        except Exception:
+            pass
 
 
 @app.post("/api/predict-link", response_model=PredictMediaResponse)
@@ -562,8 +568,8 @@ def deliver_otp_email_async(email: str, otp: str) -> None:
             cleanup_db.close()
 
 
-async def store_analysis_upload(file: UploadFile, allowed_kinds: set[str]) -> Path:
-    payload = await file.read()
+def store_analysis_upload(file: UploadFile, allowed_kinds: set[str]) -> Path:
+    payload = file.file.read()
     try:
         destination, _ = process_upload(UPLOAD_DIR, file.filename or "upload.bin", payload, allowed_kinds)
     except ValueError as error:
