@@ -930,11 +930,11 @@ function App() {
 
               {/* Top-Right Personalized Greeting */}
               {accessToken && userFirstName && (
-                <div className="flex items-center gap-2 font-mono text-sm tracking-wide text-black/80 dark:text-white/80 sm:text-base">
-                  <span className="text-base sm:text-lg" aria-hidden="true">{greetingInfo.icon}</span>
-                  <span className="font-normal text-black/85 dark:text-white/85">
+                <div className="flex items-center gap-2.5 font-mono text-base tracking-wide text-black/85 dark:text-white/85 sm:text-lg md:text-xl">
+                  <span className="text-xl sm:text-2xl" aria-hidden="true">{greetingInfo.icon}</span>
+                  <span className="font-medium text-black/90 dark:text-white/90">
                     {greetingInfo.text},{' '}
-                    <span className="font-semibold text-[#ef4444]">{userFirstName}</span>
+                    <span className="font-bold text-[#ef4444]">{userFirstName}</span>
                   </span>
                 </div>
               )}
@@ -1668,24 +1668,29 @@ function getGreetingDetails(date = new Date()) {
   return { text: 'Good evening', icon: '🌙' }
 }
 
+const COMMON_SURNAMES_REGEX = /(yadav|kumar|kumari|singh|sharma|gupta|patel|verma|mishra|reddy|chowdhury|chaudhary|das|khan|ali|roy|sen|jain|joshi|bhat|nair|rao|mehta|shah|pandey|tiwari|dubey|shukla|tripathi|mandal|paswan|prasad|devi|thakur|jha|agarwal|agrawal|bansal|goyal|saxena|mathur|bhatnagar|srivastava|kaur|gill|dhillon|sidhu|sandhu|grewal|cheema|mann|deol|aulakh|brar|bajwa|chahal|sohi|virk|pal|ray|dey|ghosh|bose|dutta|mukherjee|banerjee|chatterjee)$/i
+
 function extractFirstName(email = '', fullName = '', givenName = '') {
+  let candidate = ''
   if (givenName && givenName.trim()) {
-    const clean = givenName.trim().split(/\s+/)[0]
-    return clean.charAt(0).toUpperCase() + clean.slice(1)
+    candidate = givenName.trim().split(/\s+/)[0]
+  } else if (fullName && fullName.trim()) {
+    candidate = fullName.trim().split(/\s+/)[0]
+  } else if (email && typeof email === 'string') {
+    const username = (email.includes('@') ? email.split('@')[0] : email).trim()
+    const firstPart = username.split(/[._\-+]/)[0] || username
+    candidate = firstPart.replace(/\d+$/, '') || firstPart
   }
-  if (fullName && fullName.trim()) {
-    const clean = fullName.trim().split(/\s+/)[0]
-    return clean.charAt(0).toUpperCase() + clean.slice(1)
+
+  if (!candidate) return ''
+
+  // If candidate ends with a known surname and the remaining prefix has >= 3 letters, strip the surname
+  const match = candidate.match(COMMON_SURNAMES_REGEX)
+  if (match && match.index >= 3) {
+    candidate = candidate.slice(0, match.index)
   }
-  if (!email || typeof email !== 'string') return ''
-  const username = (email.includes('@') ? email.split('@')[0] : email).trim()
-  if (!username) return ''
-  const firstPart = username.split(/[._\-+]/)[0] || username
-  const stripped = firstPart.replace(/\d+$/, '') || firstPart
-  if (stripped.length > 0) {
-    return stripped.charAt(0).toUpperCase() + stripped.slice(1).toLowerCase()
-  }
-  return username
+
+  return candidate.charAt(0).toUpperCase() + candidate.slice(1).toLowerCase()
 }
 
 function decodeJwtProfile(token) {
