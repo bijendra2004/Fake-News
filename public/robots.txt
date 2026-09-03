@@ -1,0 +1,6 @@
+# robots.txt for SachLens
+User-agent: *
+Allow: /
+Disallow: /api/
+
+Sitemap: https://sachlens-app.vercel.app/sitemap.xml

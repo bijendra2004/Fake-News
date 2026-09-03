@@ -1,0 +1,27 @@
+{
+  "name": "SachLens — AI-Powered Fact-Checking & Claim Verification",
+  "short_name": "SachLens",
+  "description": "Verify claims across text, images, voice notes, and links with live search grounding, confidence scores, and cited sources.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#0a0a0a",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

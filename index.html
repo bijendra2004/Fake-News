@@ -3,18 +3,110 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SachLens — AI-Powered Claim Verification &amp; Fact Checking</title>
+    <meta name="description" content="SachLens uses AI reasoning and live web search to verify claims from text, images, links, and voice notes with confidence scores and cited sources." />
+    <meta name="keywords" content="AI fact checker, AI-powered fact checking, claim verification, verify online claims, misinformation detection, fact verification, verify text images and links, AI claim verification" />
+    <meta name="author" content="Bijendra Yadav" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <link rel="canonical" href="https://sachlens-app.vercel.app/" />
+
+    <!-- Theme & Mobile Colors -->
+    <meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f8f7f3" media="(prefers-color-scheme: light)" />
+
+    <!-- Favicon & Web Manifest -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="shortcut icon" href="/favicon.ico" />
-    <title>SachLens — AI-Powered Fact-Checking &amp; Claim Verification Platform</title>
-    <meta name="description" content="SachLens is an AI-powered fact-checking and claim verification platform. Verify claims across text, images, voice notes, and links with live search grounding, confidence scores, and source citations." />
-    <meta property="og:title" content="SachLens — AI-Powered Fact-Checking &amp; Claim Verification Platform" />
-    <meta property="og:description" content="Verify claims across text, images, voice notes, and links with live web search grounding, confidence scoring, detailed explanations, and cited sources." />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <!-- Open Graph / Social Sharing (Facebook, WhatsApp, LinkedIn, Discord, Slack) -->
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="SachLens" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:url" content="https://sachlens-app.vercel.app/" />
+    <meta property="og:title" content="SachLens — Verify Claims. Uncover the Facts." />
+    <meta property="og:description" content="AI-powered claim verification using live web search, AI reasoning, and cited sources." />
+    <meta property="og:image" content="https://sachlens-app.vercel.app/og-image.png" />
+    <meta property="og:image:secure_url" content="https://sachlens-app.vercel.app/og-image.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="SachLens — AI-Powered Claim Verification &amp; Fact Checking Platform" />
+
+    <!-- Twitter / X Card -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="SachLens — AI-Powered Fact-Checking &amp; Claim Verification Platform" />
-    <meta name="twitter:description" content="Verify claims across text, images, voice notes, and links with live web search grounding, confidence scoring, detailed explanations, and cited sources." />
+    <meta name="twitter:url" content="https://sachlens-app.vercel.app/" />
+    <meta name="twitter:title" content="SachLens — Verify Claims. Uncover the Facts." />
+    <meta name="twitter:description" content="AI-powered claim verification using live web search, AI reasoning, and cited sources." />
+    <meta name="twitter:image" content="https://sachlens-app.vercel.app/og-image.png" />
+    <meta name="twitter:image:alt" content="SachLens — AI-Powered Claim Verification &amp; Fact Checking Platform" />
+
+    <!-- Google Search Console Verification Placeholder: Insert your verification tag here -->
+    <!-- <meta name="google-site-verification" content="YOUR_GOOGLE_SEARCH_CONSOLE_VERIFICATION_CODE" /> -->
+
+    <!-- Schema.org JSON-LD Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "WebSite",
+          "@id": "https://sachlens-app.vercel.app/#website",
+          "url": "https://sachlens-app.vercel.app/",
+          "name": "SachLens",
+          "description": "AI-powered claim verification and fact-checking platform that verifies text, images, links, and voice notes with live search grounding and cited sources.",
+          "inLanguage": "en-US"
+        },
+        {
+          "@type": "WebApplication",
+          "@id": "https://sachlens-app.vercel.app/#webapp",
+          "url": "https://sachlens-app.vercel.app/",
+          "name": "SachLens",
+          "applicationCategory": "FactCheckingApplication, UtilityApplication",
+          "operatingSystem": "All",
+          "browserRequirements": "Requires JavaScript",
+          "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "USD"
+          },
+          "featureList": [
+            "Text claim verification with live search grounding",
+            "Image claim verification with OCR and multimodal vision",
+            "Link and article analysis with fact-check verification",
+            "Voice note transcription and claim verification",
+            "Percentage-based confidence scoring and source citations"
+          ]
+        },
+        {
+          "@type": "Organization",
+          "@id": "https://sachlens-app.vercel.app/#organization",
+          "name": "SachLens",
+          "url": "https://sachlens-app.vercel.app/",
+          "logo": {
+            "@type": "ImageObject",
+            "url": "https://sachlens-app.vercel.app/icon-512.png",
+            "width": 512,
+            "height": 512
+          },
+          "founder": {
+            "@type": "Person",
+            "@id": "https://sachlens-app.vercel.app/#author",
+            "name": "Bijendra Yadav",
+            "jobTitle": "Creator & Software Developer"
+          }
+        },
+        {
+          "@type": "Person",
+          "@id": "https://sachlens-app.vercel.app/#author",
+          "name": "Bijendra Yadav",
+          "jobTitle": "Software Developer & Creator of SachLens"
+        }
+      ]
+    }
+    </script>
   </head>
   <body>
     <div id="root"></div>
