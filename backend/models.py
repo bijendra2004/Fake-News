@@ -81,6 +81,9 @@ class RefreshTokenRecord(Base):
     email: Mapped[str] = mapped_column(EncryptedText(), nullable=False, index=True)
     token_hash: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    last_active_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    device_fingerprint: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
@@ -98,17 +101,24 @@ DB_SESSION_EXPIRES_IN_SECONDS = 60 * 60 * 24
 
 def init_db(engine) -> None:
     Base.metadata.create_all(bind=engine)
-    if engine.dialect.name == "sqlite":
-        inspector = inspect(engine)
-        columns = {column["name"] for column in inspector.get_columns("free_usage_tracking")}
-        # NOTE: These text() calls are static DDL migration strings with no user
-        # input — safe from SQL injection. They exist only for backwards-compatible
-        # schema migration on existing SQLite databases.
-        with engine.begin() as connection:
-            if "abuse_count" not in columns:
+    inspector = inspect(engine)
+
+    with engine.begin() as connection:
+        if inspector.has_table("free_usage_tracking"):
+            usage_columns = {column["name"] for column in inspector.get_columns("free_usage_tracking")}
+            if "abuse_count" not in usage_columns:
                 connection.execute(text("ALTER TABLE free_usage_tracking ADD COLUMN abuse_count INTEGER NOT NULL DEFAULT 0"))
-            if "captcha_required_until" not in columns:
+            if "captcha_required_until" not in usage_columns:
                 connection.execute(text("ALTER TABLE free_usage_tracking ADD COLUMN captcha_required_until TIMESTAMPTZ"))
+
+        if inspector.has_table("refresh_tokens"):
+            token_columns = {column["name"] for column in inspector.get_columns("refresh_tokens")}
+            if "issued_at" not in token_columns:
+                connection.execute(text("ALTER TABLE refresh_tokens ADD COLUMN issued_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP"))
+            if "last_active_at" not in token_columns:
+                connection.execute(text("ALTER TABLE refresh_tokens ADD COLUMN last_active_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP"))
+            if "device_fingerprint" not in token_columns:
+                connection.execute(text("ALTER TABLE refresh_tokens ADD COLUMN device_fingerprint VARCHAR(255)"))
 
 
 def get_or_create_usage_row(db: Session, device_fingerprint: str, ip_address: str) -> FreeUsageTracking:

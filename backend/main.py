@@ -44,10 +44,13 @@ from .auth import (
     get_access_token_email,
     issue_otp,
     normalize_email,
+    revoke_all_user_sessions,
     revoke_refresh_token,
     rotate_refresh_token,
-    verify_refresh_token,
+    touch_session_activity,
+    verify_access_token,
     verify_otp,
+    verify_refresh_token,
 )
 from .models import (
     SearchHistory,
@@ -341,8 +344,9 @@ def otp_verify(request: Request, payload: OtpVerifyBody, response: Response, db:
     if not verify_otp(email, payload.otp, db, max_attempts=settings.otp_max_attempts):
         raise HTTPException(status_code=400, detail="Invalid OTP")
 
+    device_fingerprint = get_device_fingerprint(request)
     access_token = create_access_token(email)
-    refresh_token = rotate_refresh_token(email, db)
+    refresh_token = rotate_refresh_token(email, db, device_fingerprint=device_fingerprint)
     set_refresh_cookie(response, refresh_token)
     return AuthTokensResponse(access_token=access_token, email=email)
 
@@ -358,8 +362,9 @@ def google_auth(request: Request, payload: GoogleAuthRequest, response: Response
     user = get_or_create_user(db, email)
     logger.info("Google sign-in verified for %s (user_id=%s)", email, user.id)
 
+    device_fingerprint = get_device_fingerprint(request)
     access_token = create_access_token(email)
-    refresh_token = rotate_refresh_token(email, db)
+    refresh_token = rotate_refresh_token(email, db, device_fingerprint=device_fingerprint)
     set_refresh_cookie(response, refresh_token)
     return AuthTokensResponse(access_token=access_token, email=email)
 
@@ -368,16 +373,20 @@ def google_auth(request: Request, payload: GoogleAuthRequest, response: Response
 def refresh_tokens(request: Request, response: Response, db: Session = Depends(get_db)) -> AuthTokensResponse:
     refresh_token = request.cookies.get("refresh_token")
     if not refresh_token:
-        raise HTTPException(status_code=401, detail="Missing refresh token")
+        raise HTTPException(status_code=401, detail={"detail": "Missing refresh token", "requires_login": True})
 
-    email = verify_refresh_token(refresh_token, db)
+    device_fingerprint = get_device_fingerprint(request)
+    email = verify_refresh_token(refresh_token, db, current_fingerprint=device_fingerprint)
     if not email:
-        raise HTTPException(status_code=401, detail="Invalid refresh token")
+        response.delete_cookie("refresh_token", path="/")
+        raise HTTPException(status_code=401, detail={"detail": "Session expired, please verify again", "requires_login": True})
 
     access_token = create_access_token(email)
-    rotated_refresh_token = rotate_refresh_token(email, db, old_token=refresh_token)
+    rotated_refresh_token = rotate_refresh_token(
+        email, db, old_token=refresh_token, device_fingerprint=device_fingerprint
+    )
     set_refresh_cookie(response, rotated_refresh_token)
-    return AuthTokensResponse(access_token=access_token)
+    return AuthTokensResponse(access_token=access_token, email=email)
 
 
 @app.post("/api/auth/logout", response_model=LogoutResponse)
@@ -387,6 +396,19 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)) 
         email = verify_refresh_token(refresh_token, db)
         if email:
             revoke_refresh_token(refresh_token, db, email=email)
+    response.delete_cookie("refresh_token", path="/")
+    return LogoutResponse(ok=True)
+
+
+@app.post("/api/auth/logout-all", response_model=LogoutResponse)
+def logout_all(request: Request, response: Response, db: Session = Depends(get_db)) -> LogoutResponse:
+    email = get_authenticated_email(request)
+    if not email:
+        refresh_token = request.cookies.get("refresh_token")
+        if refresh_token:
+            email = verify_refresh_token(refresh_token, db)
+    if email:
+        revoke_all_user_sessions(email, db)
     response.delete_cookie("refresh_token", path="/")
     return LogoutResponse(ok=True)
 
@@ -450,6 +472,10 @@ def predict_from_text(request: Request, text: str, db: Session) -> PredictRespon
     authenticated_email = get_authenticated_email(request)
     if not authenticated_email:
         raise HTTPException(status_code=401, detail={"requires_login": True})
+
+    # Touch session activity to extend the 48h sliding inactivity timer
+    device_fingerprint = get_device_fingerprint(request)
+    touch_session_activity(authenticated_email, db, device_fingerprint=device_fingerprint)
 
     user = get_or_create_user(db, authenticated_email)
 

@@ -19,6 +19,8 @@ JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 OTP_EMAIL_LIMIT_WINDOW_SECONDS = 600
 ACCESS_TOKEN_EXPIRES_MINUTES = 15
 REFRESH_TOKEN_EXPIRES_DAYS = 30
+SLIDING_INACTIVITY_HOURS = 48
+ABSOLUTE_MAX_SESSION_DAYS = 7
 OTP_EXPIRES_MINUTES = 10
 
 logger = logging.getLogger("sachlens.auth")
@@ -69,13 +71,21 @@ def issue_otp(
     return otp
 
 
+def ensure_utc(dt: datetime | None) -> datetime:
+    if dt is None:
+        return utcnow()
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 def verify_otp(email: str, otp: str, db: Session, max_attempts: int = 5) -> bool:
     challenge = db.execute(
         select(OTPChallenge).where(OTPChallenge.email == email).order_by(OTPChallenge.created_at.desc())
     ).scalar_one_or_none()
     if challenge is None:
         return False
-    if challenge.expires_at < utcnow():
+    if ensure_utc(challenge.expires_at) < utcnow():
         db.execute(delete(OTPChallenge).where(OTPChallenge.id == challenge.id))
         db.commit()
         return False
@@ -144,24 +154,58 @@ def get_access_token_email(token: str) -> str | None:
     return str(email) if email else None
 
 
-def rotate_refresh_token(email: str, db: Session, old_token: str | None = None) -> str:
+def rotate_refresh_token(
+    email: str,
+    db: Session,
+    old_token: str | None = None,
+    device_fingerprint: str | None = None,
+) -> str:
+    """Create a new refresh token or rotate an existing one.
+
+    Preserves `issued_at` across rotations to enforce the 7-day absolute session ceiling.
+    Updates `last_active_at` and associates the client's device fingerprint.
+    """
     now = utcnow()
+    issued_at = now
+    stored_fingerprint = device_fingerprint
+
+    if old_token:
+        old_hash = hash_value(email, old_token)
+        old_row = db.execute(
+            select(RefreshTokenRecord).where(RefreshTokenRecord.token_hash == old_hash)
+        ).scalar_one_or_none()
+        if old_row:
+            if old_row.issued_at:
+                issued_at = old_row.issued_at
+            if old_row.device_fingerprint and not stored_fingerprint:
+                stored_fingerprint = old_row.device_fingerprint
+            db.delete(old_row)
+
     token = create_refresh_token(email)
     token_hash = hash_value(email, token)
-    if old_token:
-        db.execute(delete(RefreshTokenRecord).where(RefreshTokenRecord.token_hash == hash_value(email, old_token)))
     db.add(
         RefreshTokenRecord(
             email=email,
             token_hash=token_hash,
             expires_at=now + timedelta(days=REFRESH_TOKEN_EXPIRES_DAYS),
+            issued_at=issued_at,
+            last_active_at=now,
+            device_fingerprint=stored_fingerprint,
         )
     )
     db.commit()
     return token
 
 
-def verify_refresh_token(token: str, db: Session) -> str | None:
+def verify_refresh_token(
+    token: str,
+    db: Session,
+    current_fingerprint: str | None = None,
+) -> str | None:
+    """Verify refresh token validity under sliding inactivity, absolute max lifetime, and device binding rules.
+
+    Returns email if valid, or None if expired / mismatched.
+    """
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
     except jwt.PyJWTError:
@@ -173,11 +217,62 @@ def verify_refresh_token(token: str, db: Session) -> str | None:
     email = payload.get("sub")
     if not email:
         return None
+
     token_hash = hash_value(email, token)
-    row = db.execute(select(RefreshTokenRecord).where(RefreshTokenRecord.token_hash == token_hash)).scalar_one_or_none()
-    if row is None or row.expires_at < utcnow():
+    row = db.execute(
+        select(RefreshTokenRecord).where(RefreshTokenRecord.token_hash == token_hash)
+    ).scalar_one_or_none()
+    if row is None or ensure_utc(row.expires_at) < utcnow():
         return None
+
+    now = utcnow()
+
+    # Rule 1: Sliding Inactivity Timeout (48 hours)
+    last_active = ensure_utc(row.last_active_at or row.created_at)
+    if (now - last_active).total_seconds() > SLIDING_INACTIVITY_HOURS * 3600:
+        logger.info("Session for %s expired due to 48h inactivity (last_active: %s)", email, last_active)
+        db.delete(row)
+        db.commit()
+        return None
+
+    # Rule 2: Absolute Max Session Lifetime (7 days from original login)
+    issued_at = ensure_utc(row.issued_at or row.created_at)
+    if (now - issued_at).total_seconds() > ABSOLUTE_MAX_SESSION_DAYS * 86400:
+        logger.info("Session for %s reached 7-day absolute max lifetime (issued_at: %s)", email, issued_at)
+        db.delete(row)
+        db.commit()
+        return None
+
+    # Rule 3: Device Fingerprint Binding
+    if row.device_fingerprint and current_fingerprint and current_fingerprint.strip() != "server":
+        if row.device_fingerprint.strip() != current_fingerprint.strip():
+            logger.warning(
+                "Device fingerprint mismatch for %s (stored=%s, received=%s). Revoking session.",
+                email, row.device_fingerprint, current_fingerprint,
+            )
+            db.delete(row)
+            db.commit()
+            return None
+
+    # Session is active and valid: touch last_active_at
+    row.last_active_at = now
+    db.add(row)
+    db.commit()
     return email
+
+
+def touch_session_activity(email: str, db: Session, device_fingerprint: str | None = None) -> None:
+    """Update last_active_at timestamp for active sessions of this user."""
+    now = utcnow()
+    query = select(RefreshTokenRecord).where(RefreshTokenRecord.email == email)
+    if device_fingerprint and device_fingerprint != "server":
+        query = query.where(RefreshTokenRecord.device_fingerprint == device_fingerprint)
+    tokens = db.execute(query).scalars().all()
+    for row in tokens:
+        row.last_active_at = now
+        db.add(row)
+    if tokens:
+        db.commit()
 
 
 def revoke_refresh_token(token: str, db: Session, email: str | None = None) -> None:
@@ -186,6 +281,13 @@ def revoke_refresh_token(token: str, db: Session, email: str | None = None) -> N
     token_hash = hash_value(email, token)
     db.execute(delete(RefreshTokenRecord).where(RefreshTokenRecord.token_hash == token_hash))
     db.commit()
+
+
+def revoke_all_user_sessions(email: str, db: Session) -> int:
+    """Revoke all refresh tokens for a user across all devices."""
+    result = db.execute(delete(RefreshTokenRecord).where(RefreshTokenRecord.email == email))
+    db.commit()
+    return result.rowcount or 0
 
 
 def hash_value(email: str, value: str) -> str:

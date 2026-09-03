@@ -72,12 +72,31 @@ function App() {
   }, [theme])
 
   useEffect(() => {
-    setDeviceFingerprint(createDeviceFingerprint())
-    // Pre-warm the backend server immediately on page load to eliminate cold-start delay
+    const fingerprint = createDeviceFingerprint()
+    setDeviceFingerprint(fingerprint)
+    // Pre-warm backend and silently restore persistent session if a valid refresh cookie exists
     if (API_BASE_URL) {
       fetch(`${API_BASE_URL}/api/health`).catch(() => {})
+      fetch(`${API_BASE_URL}/api/auth/refresh`, {
+        method: 'POST',
+        headers: {
+          'X-Device-Fingerprint': fingerprint,
+          ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
+        },
+        credentials: 'include',
+      })
+        .then(async (response) => {
+          if (response.ok) {
+            const data = await response.json()
+            if (data.access_token) {
+              setAccessToken(data.access_token)
+              if (data.email) setAccountEmail(data.email)
+            }
+          }
+        })
+        .catch(() => {})
     }
-  }, [])
+  }, [csrfToken])
 
   useEffect(() => {
     if (authStep !== 'otp' || resendSecondsLeft <= 0) return undefined
@@ -484,6 +503,40 @@ function App() {
     }
   }
 
+  const resetSessionAndState = () => {
+    // Reset authentication state
+    setAccessToken('')
+    setAccountEmail('')
+    setShowAccountMenu(false)
+    setAuthStep('email')
+    setAuthOtp('')
+    setResendSecondsLeft(0)
+
+    // Clear all inputs, contexts, and searched data
+    setTextValue('')
+    setLinkValue('')
+    setLinkContext('')
+    setImageFile(null)
+    setImageContext('')
+    revokeObjectUrl(imageObjectUrlRef.current)
+    imageObjectUrlRef.current = ''
+    setImagePreview('')
+
+    // Clear voice recordings
+    setAudioBlob(null)
+    revokeObjectUrl(audioObjectUrlRef.current)
+    audioObjectUrlRef.current = ''
+    setAudioUrl('')
+    setRecordingState('idle')
+    setRecordingSeconds(0)
+
+    // Clear all search results and errors
+    setTabResults({ text: null, image: null, voice: null, link: null })
+    setTabLoading({ text: false, image: false, voice: false, link: false })
+    setMediaError('')
+    setAuthError('')
+  }
+
   const handleLogout = async () => {
     setAuthLoading(true)
     setAuthError('')
@@ -500,37 +553,31 @@ function App() {
         throw new Error(formatApiError(payload, 'Logout failed.'))
       }
 
-      // Reset authentication state
-      setAccessToken('')
-      setAccountEmail('')
-      setShowAccountMenu(false)
-      setAuthStep('email')
-      setAuthOtp('')
-      setResendSecondsLeft(0)
+      resetSessionAndState()
+    } catch (error) {
+      setAuthError(error.message)
+    } finally {
+      setAuthLoading(false)
+    }
+  }
 
-      // Clear all inputs, contexts, and searched data
-      setTextValue('')
-      setLinkValue('')
-      setLinkContext('')
-      setImageFile(null)
-      setImageContext('')
-      revokeObjectUrl(imageObjectUrlRef.current)
-      imageObjectUrlRef.current = ''
-      setImagePreview('')
+  const handleLogoutAll = async () => {
+    setAuthLoading(true)
+    setAuthError('')
 
-      // Clear voice recordings
-      setAudioBlob(null)
-      revokeObjectUrl(audioObjectUrlRef.current)
-      audioObjectUrlRef.current = ''
-      setAudioUrl('')
-      setRecordingState('idle')
-      setRecordingSeconds(0)
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/logout-all`, {
+        method: 'POST',
+        headers: buildApiHeaders(),
+        credentials: 'include',
+      })
 
-      // Clear all search results and errors
-      setTabResults({ text: null, image: null, voice: null, link: null })
-      setTabLoading({ text: false, image: false, voice: false, link: false })
-      setMediaError('')
-      setAuthError('')
+      const payload = await readJsonResponse(response)
+      if (!response.ok) {
+        throw new Error(formatApiError(payload, 'Logout from all devices failed.'))
+      }
+
+      resetSessionAndState()
     } catch (error) {
       setAuthError(error.message)
     } finally {
@@ -781,6 +828,13 @@ function App() {
                       className="mt-3 w-full border border-black/20 bg-transparent px-3 py-2 font-mono text-xs font-bold uppercase tracking-[0.26em] text-black transition hover:bg-black hover:text-white dark:border-white/20 dark:text-white dark:hover:bg-white dark:hover:text-black"
                     >
                       Log out
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleLogoutAll}
+                      className="mt-2 w-full border border-[#ef4444]/40 bg-transparent px-3 py-2 font-mono text-[0.65rem] font-bold uppercase tracking-[0.22em] text-[#ef4444] transition hover:bg-[#ef4444] hover:text-white dark:border-[#ef4444]/40 dark:hover:bg-[#ef4444] dark:hover:text-white"
+                    >
+                      Log out all devices
                     </button>
                   </div>
                 )}
