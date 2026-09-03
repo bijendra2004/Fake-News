@@ -930,11 +930,11 @@ function App() {
 
               {/* Top-Right Personalized Greeting */}
               {accessToken && userFirstName && (
-                <div className="flex items-center gap-2.5 font-mono text-base tracking-wide text-black/85 dark:text-white/85 sm:text-lg md:text-xl">
-                  <span className="text-xl sm:text-2xl" aria-hidden="true">{greetingInfo.icon}</span>
+                <div className="flex items-center gap-3 font-mono text-lg tracking-tight text-black/90 dark:text-white/90 sm:text-xl md:text-2xl lg:text-[1.75rem]">
+                  <span className="text-2xl sm:text-3xl md:text-[2rem]" aria-hidden="true">{greetingInfo.icon}</span>
                   <span className="font-medium text-black/90 dark:text-white/90">
                     {greetingInfo.text},{' '}
-                    <span className="font-bold text-[#ef4444]">{userFirstName}</span>
+                    <span className="font-extrabold text-[#ef4444]">{userFirstName}</span>
                   </span>
                 </div>
               )}
