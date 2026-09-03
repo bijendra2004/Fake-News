@@ -256,13 +256,16 @@ function App() {
     }
   }, [])
 
-  const buildApiHeaders = (extra = {}) => ({
-    ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
-    'X-Device-Fingerprint': deviceFingerprint,
-    ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-    ...(captchaToken ? { 'X-Captcha-Token': captchaToken } : {}),
-    ...extra,
-  })
+  const buildApiHeaders = (extra = {}) => {
+    const fp = deviceFingerprint || (typeof window !== 'undefined' ? createDeviceFingerprint() : 'anonymous')
+    return {
+      ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
+      'X-Device-Fingerprint': fp,
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      ...(captchaToken ? { 'X-Captcha-Token': captchaToken } : {}),
+      ...extra,
+    }
+  }
 
   useEffect(() => {
     if (recordingState !== 'recording') return
@@ -407,17 +410,14 @@ function App() {
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/otp-request`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
-        },
+        headers: buildApiHeaders({ 'Content-Type': 'application/json' }),
         credentials: 'include',
         body: JSON.stringify({ email }),
       })
 
+      const payload = await readJsonResponse(response)
       if (!response.ok) {
-        const payload = await response.json().catch(() => ({}))
-        throw new Error(payload.detail || 'Unable to send OTP.')
+        throw new Error(formatApiError(payload, 'Unable to send OTP.'))
       }
 
       setAuthStep('otp')
@@ -443,20 +443,16 @@ function App() {
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/otp-verify`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
-        },
+        headers: buildApiHeaders({ 'Content-Type': 'application/json' }),
         credentials: 'include',
         body: JSON.stringify({ email, otp }),
       })
 
+      const payload = await readJsonResponse(response)
       if (!response.ok) {
-        const payload = await response.json().catch(() => ({}))
-        throw new Error(payload.detail || 'OTP verification failed.')
+        throw new Error(formatApiError(payload, 'OTP verification failed.'))
       }
 
-      const payload = await response.json()
       setAccessToken(payload.access_token)
       setAccountEmail(payload.email || email)
       if (typeof window !== 'undefined') {
@@ -490,10 +486,7 @@ function App() {
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/google`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
-        },
+        headers: buildApiHeaders({ 'Content-Type': 'application/json' }),
         credentials: 'include',
         body: JSON.stringify({ credential }),
       })

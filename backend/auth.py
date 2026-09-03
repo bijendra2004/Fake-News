@@ -243,16 +243,22 @@ def verify_refresh_token(
         db.commit()
         return None
 
-    # Rule 3: Device Fingerprint Binding
-    if row.device_fingerprint and current_fingerprint and current_fingerprint.strip() != "server":
-        if row.device_fingerprint.strip() != current_fingerprint.strip():
+    # Rule 3: Device Fingerprint Binding (Anti-Session Theft)
+    stored_fp = (row.device_fingerprint or "").strip()
+    received_fp = (current_fingerprint or "").strip()
+    ignored_fps = {"", "anonymous", "server", "unknown"}
+
+    if stored_fp and received_fp and stored_fp not in ignored_fps and received_fp not in ignored_fps:
+        if stored_fp != received_fp:
             logger.warning(
                 "Device fingerprint mismatch for %s (stored=%s, received=%s). Revoking session.",
-                email, row.device_fingerprint, current_fingerprint,
+                email, stored_fp, received_fp,
             )
             db.delete(row)
             db.commit()
             return None
+    elif stored_fp in ignored_fps and received_fp and received_fp not in ignored_fps:
+        row.device_fingerprint = received_fp
 
     # Session is active and valid: touch last_active_at
     row.last_active_at = now
