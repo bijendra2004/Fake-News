@@ -194,7 +194,7 @@ class GeminiExplainer:
                     {"role": "user", "content": prompt},
                 ],
                 "temperature": temperature,
-                "max_tokens": 2048,
+                "max_tokens": 3072,
             }
 
             for attempt in range(2):
@@ -459,18 +459,25 @@ class GeminiExplainer:
             '  "explanation": <array of 2-5 short bullet-style strings explaining the verdict and explicitly stating if/why it is AI-generated, fake, or real>,\n'
             '  "corrected_info": <string with correct fact or null>\n'
             "}\n\n"
+            "LANGUAGE MATCHING RULE (MANDATORY - MIRROR USER'S INPUT LANGUAGE):\n"
+            "- You MUST write all 'explanation' bullets and 'corrected_info' in the exact same language and dialect as the user's input claim:\n"
+            "  * If the user wrote in HINGLISH (Hindi written using English/Latin alphabet, e.g., 'kya ye sach hai', 'ye video real hai ya fake', 'modi ji ne bola kya'): Write all explanation bullet points and corrected_info entirely in natural, conversational HINGLISH (e.g., 'Ye video poori tarah se AI-generated deepfake hai aur real footage nahi hai.', 'Official sources ne confirm kiya hai ki...').\n"
+            "  * If the user wrote in ENGLISH: Write all explanation bullet points and corrected_info in standard ENGLISH.\n"
+            "  * If the user wrote in HINDI (Devanagari script, e.g., 'क्या यह खबर सच है'): Write in clear HINDI.\n"
+            "  * If the user wrote in another language (e.g. Marathi, Tamil, Bengali, Telugu): Mirror that language.\n"
+            "- Always keep the JSON keys (\"percentage\", \"verdict\", \"is_ai_generated\", \"explanation\", \"corrected_info\") and verdict values in English uppercase as specified.\n\n"
             "CRITICAL CLASSIFICATION & VERDICT RULES:\n"
             "1. AI_GENERATED verdict (is_ai_generated: true):\n"
             "   - Use this verdict whenever the content, video, image, or audio clip is created, synthesized, or manipulated by Artificial Intelligence (e.g., AI video generation via Sora/Runway/Pika, Deepfake voice clone, AI avatar, synthetic CGI presented as real footage, Midjourney/Flux image presented as real, AI face-swapping).\n"
-            "   - In the explanation bullets, explicitly state: 'This is an AI-generated video/image/audio and NOT real footage' and describe the AI generation artifacts or fact-checker debunks.\n"
+            "   - In the explanation bullets, explicitly state that this is an AI-generated video/image/audio and NOT real footage.\n"
             "2. LIKELY_FAKE verdict (is_ai_generated: false):\n"
             "   - Use this verdict when the claim or video is FALSE, fabricated, out of context, miscaptioned old footage, or misinformation, BUT is NOT created by generative AI tools.\n"
             "3. LIKELY_REAL verdict (is_ai_generated: false):\n"
             "   - Use this verdict when the claim/media is authentic, verified by credible reporting, and true.\n"
             "4. INSUFFICIENT_EVIDENCE / NEEDS_REVIEW:\n"
             "   - Use if evidence is insufficient or mixed. Set percentage 50.\n"
-            "5. If the claim is factually false or AI-generated, provide concise corrected facts in corrected_info.\n"
-            "6. Output ONLY valid JSON starting with {.\n"
+            "5. If the claim is factually false or AI-generated, provide concise corrected facts in corrected_info in the matching language.\n"
+            "6. Output ONLY valid JSON starting directly with {.\n"
             f"{web_search_section}"
             f"{fact_check_section}\n"
             f"User claim: {text}\n"
