@@ -134,10 +134,10 @@ function App() {
       }
     }
 
-    document.addEventListener('mousedown', handleDocumentClick)
+    document.addEventListener('click', handleDocumentClick)
     document.addEventListener('keydown', handleEscape)
     return () => {
-      document.removeEventListener('mousedown', handleDocumentClick)
+      document.removeEventListener('click', handleDocumentClick)
       document.removeEventListener('keydown', handleEscape)
     }
   }, [])
@@ -691,7 +691,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-[#f8f7f3] text-black transition-colors duration-300 dark:bg-[#0a0a0a] dark:text-white">
-      <header className="border-b border-black/10 bg-white/90 backdrop-blur dark:border-white/15 dark:bg-[#0a0a0a]/90">
+      <header className="sticky top-0 z-50 border-b border-black/10 bg-white/90 backdrop-blur dark:border-white/15 dark:bg-[#0a0a0a]/90">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
           <a href="#top" className="flex items-center gap-3">
             <span className="flex h-8 w-8 items-center justify-center bg-black text-white dark:bg-white dark:text-black">
@@ -733,7 +733,10 @@ function App() {
               <div className="relative z-50" ref={accountMenuRef}>
                 <button
                   type="button"
-                  onClick={() => setShowAccountMenu((value) => !value)}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setShowAccountMenu((value) => !value)
+                  }}
                   className="flex h-11 w-11 items-center justify-center border border-black bg-black text-white transition hover:bg-[#1f1f1f] dark:border-white dark:bg-white dark:text-black dark:hover:bg-[#e6e6e6]"
                   aria-label="Account menu"
                 >
@@ -741,13 +744,16 @@ function App() {
                 </button>
 
                 {showAccountMenu && (
-                  <div className="absolute right-0 top-14 w-64 border border-black/15 bg-white p-3 shadow-xl dark:border-white/15 dark:bg-[#0b0b0b]">
+                  <div
+                    onClick={(event) => event.stopPropagation()}
+                    className="absolute right-0 top-full mt-2 w-64 max-w-[calc(100vw-2rem)] border border-black/15 bg-white p-3 shadow-2xl dark:border-white/15 dark:bg-[#0b0b0b] z-50"
+                  >
                     <div className="font-mono text-[0.65rem] uppercase tracking-[0.28em] text-black/45 dark:text-white/45">SIGNED IN</div>
                     <div className="mt-2 break-all font-sans text-sm text-black dark:text-white">{accountEmail || 'Signed in user'}</div>
                     <button
                       type="button"
                       onClick={handleLogout}
-                      className="mt-3 w-full border border-black/20 bg-transparent px-3 py-2 font-mono text-xs font-bold uppercase tracking-[0.26em] text-black dark:border-white/20 dark:text-white"
+                      className="mt-3 w-full border border-black/20 bg-transparent px-3 py-2 font-mono text-xs font-bold uppercase tracking-[0.26em] text-black transition hover:bg-black hover:text-white dark:border-white/20 dark:text-white dark:hover:bg-white dark:hover:text-black"
                     >
                       Log out
                     </button>
@@ -818,7 +824,7 @@ function App() {
             </div>
 
             <div className="border border-black/35 bg-white shadow-[0_8px_24px_rgba(0,0,0,0.06)] dark:border-white/20 dark:bg-[#101010] dark:shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
-              <div className="flex overflow-x-auto border-b border-black/10 dark:border-white/10">
+              <div className="grid grid-cols-4 border-b border-black/10 dark:border-white/10">
                 {tabs.map(({ key, label, icon: Icon }) => {
                   const active = activeTab === key
                   return (
@@ -826,17 +832,15 @@ function App() {
                       key={key}
                       type="button"
                       onClick={() => setActiveTab(key)}
-                      className={`group flex min-h-14 min-w-[120px] flex-1 items-center justify-center gap-2 border-r border-black/10 px-4 font-mono text-xs font-bold uppercase tracking-[0.26em] transition last:border-r-0 md:min-w-[160px] ${
+                      className={`group flex min-h-12 flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 border-r border-black/10 px-1 sm:px-4 py-2 font-mono text-[0.65rem] sm:text-xs font-bold uppercase tracking-[0.16em] sm:tracking-[0.26em] transition last:border-r-0 ${
                         active
                           ? 'bg-black text-white dark:bg-white dark:text-black'
                           : 'bg-white text-black hover:bg-black/5 dark:bg-[#101010] dark:text-white dark:hover:bg-white/5'
                       }`}
                       aria-pressed={active}
                     >
-                      <span className={`transition-transform duration-200 ${active ? 'translate-y-0' : 'group-hover:-translate-y-0.5'}`}>
-                        <Icon className="h-4 w-4" />
-                      </span>
-                      <span className={active && key === 'text' ? 'underline decoration-[#ef4444] decoration-2 underline-offset-8' : ''}>{label}</span>
+                      <Icon className="h-4 w-4 shrink-0" />
+                      <span className="truncate">{label}</span>
                     </button>
                   )
                 })}
@@ -1044,15 +1048,15 @@ function App() {
                           {analysisResult.score}
                         </div>
                       </div>
-                      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                      <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
                         {analysisResult.reasons.map((reason) => (
-                          <div key={reason} className="border border-black/10 bg-white p-3 font-sans text-sm text-black/70 dark:border-white/10 dark:bg-[#111111] dark:text-white/70">
+                          <div key={reason} className="border border-black/10 bg-white p-3 font-sans text-sm leading-relaxed text-black/70 dark:border-white/10 dark:bg-[#111111] dark:text-white/70">
                             {reason}
                           </div>
                         ))}
 
                         {analysisResult.corrected_info && (
-                          <div className="col-span-2 border border-[#ef4444]/35 bg-white p-3 font-sans text-sm text-black/80 dark:bg-[#111111] dark:text-white/80">
+                          <div className="col-span-1 md:col-span-2 border border-[#ef4444]/35 bg-white p-3 font-sans text-sm text-black/80 dark:bg-[#111111] dark:text-white/80">
                             <div className="font-mono text-[0.65rem] font-bold uppercase tracking-[0.24em] text-[#ef4444]">Corrected info</div>
                             <div className="mt-1">{analysisResult.corrected_info}</div>
                           </div>
@@ -1060,7 +1064,7 @@ function App() {
 
                         {/* Sources */}
                         {analysisResult.sources && analysisResult.sources.length > 0 && (
-                          <div className="col-span-2 border border-emerald-600/20 bg-emerald-50/40 p-3 dark:border-emerald-400/15 dark:bg-emerald-950/20">
+                          <div className="col-span-1 md:col-span-2 border border-emerald-600/20 bg-emerald-50/40 p-3 dark:border-emerald-400/15 dark:bg-emerald-950/20">
                             <div className="font-mono text-[0.65rem] font-bold uppercase tracking-[0.24em] text-emerald-700 dark:text-emerald-400">Sources used</div>
                             <div className="mt-2 space-y-1">
                               {analysisResult.sources.map((src, i) => (
@@ -1069,7 +1073,7 @@ function App() {
                                   href={src.url}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="block truncate font-sans text-xs text-emerald-700 underline decoration-emerald-600/30 transition-colors hover:text-emerald-900 dark:text-emerald-400 dark:decoration-emerald-400/30 dark:hover:text-emerald-300"
+                                  className="block break-all font-sans text-xs text-emerald-700 underline decoration-emerald-600/30 transition-colors hover:text-emerald-900 dark:text-emerald-400 dark:decoration-emerald-400/30 dark:hover:text-emerald-300"
                                 >
                                   {src.title || src.url}
                                 </a>
@@ -1079,7 +1083,7 @@ function App() {
                         )}
 
                         {/* Dynamic disclaimer */}
-                        <div className={`col-span-2 border p-3 font-sans text-xs uppercase tracking-[0.18em] ${
+                        <div className={`col-span-1 md:col-span-2 border p-3 font-sans text-xs uppercase tracking-[0.18em] ${
                           analysisResult.grounded
                             ? 'border-emerald-600/15 bg-emerald-50/30 text-emerald-700/80 dark:border-emerald-400/10 dark:bg-emerald-950/15 dark:text-emerald-400/70'
                             : 'border-black/10 bg-[#f9f5f0] text-black/60 dark:border-white/10 dark:bg-[#0f0f0f] dark:text-white/60'
@@ -1090,7 +1094,7 @@ function App() {
                         </div>
 
                         {analysisResult.extracted_text && (
-                          <div className="col-span-2 mt-3">
+                          <div className="col-span-1 md:col-span-2 mt-3">
                             <details className="rounded border border-black/10 bg-white p-3 dark:border-white/10 dark:bg-[#111111]">
                               <summary className="font-mono text-xs font-bold uppercase tracking-[0.24em] text-black/55 dark:text-white/55">OCR: extracted text</summary>
                               <pre className="mt-2 whitespace-pre-wrap font-sans text-sm text-black/70 dark:text-white/70">{analysisResult.extracted_text}</pre>
