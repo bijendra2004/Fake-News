@@ -500,12 +500,37 @@ function App() {
         throw new Error(formatApiError(payload, 'Logout failed.'))
       }
 
+      // Reset authentication state
       setAccessToken('')
       setAccountEmail('')
       setShowAccountMenu(false)
       setAuthStep('email')
       setAuthOtp('')
       setResendSecondsLeft(0)
+
+      // Clear all inputs, contexts, and searched data
+      setTextValue('')
+      setLinkValue('')
+      setLinkContext('')
+      setImageFile(null)
+      setImageContext('')
+      revokeObjectUrl(imageObjectUrlRef.current)
+      imageObjectUrlRef.current = ''
+      setImagePreview('')
+
+      // Clear voice recordings
+      setAudioBlob(null)
+      revokeObjectUrl(audioObjectUrlRef.current)
+      audioObjectUrlRef.current = ''
+      setAudioUrl('')
+      setRecordingState('idle')
+      setRecordingSeconds(0)
+
+      // Clear all search results and errors
+      setTabResults({ text: null, image: null, voice: null, link: null })
+      setTabLoading({ text: false, image: false, voice: false, link: false })
+      setMediaError('')
+      setAuthError('')
     } catch (error) {
       setAuthError(error.message)
     } finally {
