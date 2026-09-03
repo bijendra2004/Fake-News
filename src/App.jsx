@@ -1138,11 +1138,11 @@ function App() {
                       type="url"
                       value={linkValue}
                       onChange={(event) => setLinkValue(event.target.value)}
-                      placeholder="Paste a YouTube, Twitter/X, Instagram, or news link"
+                      placeholder="Paste a Facebook, Instagram, YouTube, Twitter/X, Reddit, or news link"
                       className="w-full border border-black/15 bg-white px-4 py-4 font-sans text-base text-black outline-none placeholder:text-black/35 transition-[border-color,box-shadow] focus:border-black focus:shadow-[0_8px_18px_rgba(0,0,0,0.06)] dark:border-white/15 dark:bg-[#0b0b0b] dark:text-white dark:placeholder:text-white/35 dark:focus:border-white dark:focus:shadow-[0_8px_18px_rgba(255,255,255,0.06)]"
                     />
                     <div className="font-mono text-xs uppercase tracking-[0.24em] text-black/45 dark:text-white/45">
-                      {linkValue ? (isValidSourceLink(linkValue) ? 'VALID SOURCE LINK' : 'LINK FORMAT NOT RECOGNIZED') : 'SUPPORTED SOURCES: YOUTUBE, X, INSTAGRAM, NEWS'}
+                      {linkValue ? (isValidSourceLink(linkValue) ? 'VALID SOURCE LINK' : 'LINK FORMAT NOT RECOGNIZED') : 'SUPPORTED SOURCES: FACEBOOK, INSTAGRAM, YOUTUBE, X, NEWS & WEB'}
                     </div>
 
                     <div className="space-y-2 pt-1">
@@ -1493,20 +1493,10 @@ function getInitialTheme() {
 }
 
 function isValidSourceLink(value) {
+  if (!value || typeof value !== 'string') return false
   try {
-    const url = new URL(value)
-    const hostname = url.hostname.replace(/^www\./, '').toLowerCase()
-    const acceptableHosts = [
-      'youtube.com',
-      'youtu.be',
-      'x.com',
-      'twitter.com',
-      'instagram.com',
-      'threads.net',
-    ]
-
-    if (acceptableHosts.some((host) => hostname === host || hostname.endsWith(`.${host}`))) return true
-    return hostname.includes('news') || hostname.includes('reuters') || hostname.includes('apnews') || hostname.includes('bbc') || hostname.includes('associatedpress')
+    const url = new URL(value.trim())
+    return (url.protocol === 'http:' || url.protocol === 'https:') && url.hostname.includes('.')
   } catch {
     return false
   }

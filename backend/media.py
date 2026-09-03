@@ -71,13 +71,14 @@ _BOILERPLATE_PATTERNS = [
 ]
 
 _DYNAMIC_DOMAINS = {
+    "facebook.com", "www.facebook.com", "m.facebook.com", "fb.watch", "fb.me", "web.facebook.com",
     "instagram.com", "www.instagram.com",
     "twitter.com", "www.twitter.com", "x.com", "www.x.com",
-    "facebook.com", "www.facebook.com", "m.facebook.com",
     "tiktok.com", "www.tiktok.com",
     "threads.net", "www.threads.net",
     "youtube.com", "www.youtube.com", "youtu.be",
-    "reddit.com", "www.reddit.com",
+    "reddit.com", "www.reddit.com", "old.reddit.com",
+    "linkedin.com", "www.linkedin.com",
 }
 
 
@@ -309,18 +310,14 @@ def transcribe_audio_file(audio_path: Path) -> str:
 
 
 def extract_text_from_url(raw_url: str) -> ExtractedPageText:
-    """Extract article or post text from a URL.
-
-    Uses social media crawler headers (which causes Instagram, Twitter, Facebook, etc.
-    to return server-rendered post captions in Open Graph metadata) and Readability for news articles.
-    """
+    """Extract article or post text from a URL across Facebook, Instagram, YouTube, X, Reddit, and web news."""
     import html as html_module
 
     parsed = validate_public_http_url(raw_url)
     hostname = (parsed.hostname or "").lower()
     is_dynamic_site = any(hostname == d or hostname.endswith("." + d) for d in _DYNAMIC_DOMAINS)
 
-    # 1. Fetch page using social crawler User-Agent (triggers server-side rendering of OG tags on Instagram/Twitter/etc.)
+    # 1. Fetch page using social crawler User-Agent (triggers server-side rendering of OG tags on Facebook/Instagram/Twitter/etc.)
     page_html = ""
     try:
         req = urllib.request.Request(
@@ -331,7 +328,7 @@ def extract_text_from_url(raw_url: str) -> ExtractedPageText:
                 "Accept-Language": "en-US,en;q=0.9,hi;q=0.8",
             },
         )
-        with urllib.request.urlopen(req, timeout=12) as resp:
+        with urllib.request.urlopen(req, timeout=5) as resp:
             page_html = resp.read().decode("utf-8", errors="ignore")
     except Exception as error:
         logger.warning("Crawler fetch failed for %s: %s", raw_url, error)
@@ -351,9 +348,8 @@ def extract_text_from_url(raw_url: str) -> ExtractedPageText:
 
     candidate_text = article_text or og_text
 
-    # 5. If crawler didn't get enough text, fallback to Tavily URL search
-    if not candidate_text or len(candidate_text) < 30:
-        # Strip tracking query params for cleaner search
+    # 5. If crawler didn't get enough text (e.g. JS rendered, login wall), search with Tavily
+    if not candidate_text or len(candidate_text) < 30 or _is_boilerplate(candidate_text):
         clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
         tavily_text = _search_url_with_tavily(clean_url)
         if tavily_text and not _is_boilerplate(tavily_text):
@@ -363,8 +359,8 @@ def extract_text_from_url(raw_url: str) -> ExtractedPageText:
     if not normalized or len(normalized) < 15:
         if is_dynamic_site:
             raise MediaProcessingError(
-                f"Could not load the content from {hostname}. Social media posts may require login. "
-                "Please copy and paste the text/caption directly into the TEXT tab."
+                f"Could not automatically load the content from {hostname} due to privacy/login restrictions. "
+                "Please copy and paste the text/caption directly into the TEXT tab for instant verification."
             )
         raise MediaProcessingError("No readable article text could be extracted from the linked page")
 
@@ -392,7 +388,7 @@ def _search_url_with_tavily(url: str) -> str:
             headers={"Content-Type": "application/json", "User-Agent": "SachLens/1.0"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=12) as resp:
+        with urllib.request.urlopen(req, timeout=6) as resp:
             data = json.loads(resp.read().decode("utf-8"))
 
         results = data.get("results", [])
@@ -430,23 +426,24 @@ def _extract_og_meta_text(html: str) -> str:
     if not html:
         return ""
 
-    # Regex search for OG tags (works without bs4)
-    og_title_m = re.search(r'<meta[^>]*property=[\"\']og:title[\"\'][^>]*content=[\"\'](.*?)[\"\']', html, re.DOTALL | re.IGNORECASE)
-    og_desc_m = re.search(r'<meta[^>]*property=[\"\']og:description[\"\'][^>]*content=[\"\'](.*?)[\"\']', html, re.DOTALL | re.IGNORECASE)
-    tw_desc_m = re.search(r'<meta[^>]*name=[\"\']twitter:description[\"\'][^>]*content=[\"\'](.*?)[\"\']', html, re.DOTALL | re.IGNORECASE)
+    title_matches = re.findall(r'<meta\s+[^>]*(?:property|name)=["\'](?:og:title|twitter:title|title)["\'][^>]*content=["\']([^"\']*)["\']', html, re.IGNORECASE)
+    title_matches += re.findall(r'<meta\s+[^>]*content=["\']([^"\']*)["\'][^>]*(?:property|name)=["\'](?:og:title|twitter:title|title)["\']', html, re.IGNORECASE)
 
-    title = html_module.unescape(og_title_m.group(1)).strip() if og_title_m else ""
-    desc = html_module.unescape(og_desc_m.group(1)).strip() if og_desc_m else ""
-    if not desc and tw_desc_m:
-        desc = html_module.unescape(tw_desc_m.group(1)).strip()
+    desc_matches = re.findall(r'<meta\s+[^>]*(?:property|name)=["\'](?:og:description|twitter:description|description)["\'][^>]*content=["\']([^"\']*)["\']', html, re.IGNORECASE)
+    desc_matches += re.findall(r'<meta\s+[^>]*content=["\']([^"\']*)["\'][^>]*(?:property|name)=["\'](?:og:description|twitter:description|description)["\']', html, re.IGNORECASE)
+
+    tag_title_m = re.search(r'<title[^>]*>(.*?)</title>', html, re.IGNORECASE | re.DOTALL)
+
+    title = html_module.unescape(title_matches[0]).strip() if title_matches else (html_module.unescape(tag_title_m.group(1)).strip() if tag_title_m else "")
+    desc = html_module.unescape(desc_matches[0]).strip() if desc_matches else ""
 
     # Clean social media prefix like "903 likes, 7 comments - username on date: "
     clean_desc = re.sub(r'^[0-9,KkMm\s]+likes?,?\s+[0-9,KkMm\s]+comments?\s+-\s+[^\:]+:\s*', '', desc, flags=re.IGNORECASE).strip()
     if clean_desc.startswith('"') and clean_desc.endswith('"'):
         clean_desc = clean_desc[1:-1].strip()
 
-    # Clean title like "Username on Instagram: \"...\""
-    clean_title = re.sub(r'^[^\:]+on\s+Instagram:\s*', '', title, flags=re.IGNORECASE).strip()
+    # Clean title like "Username on Instagram / Facebook / X: \"...\""
+    clean_title = re.sub(r'^[^\:]+on\s+(?:Instagram|Facebook|X|Twitter|Threads):\s*', '', title, flags=re.IGNORECASE).strip()
     if clean_title.startswith('"') and clean_title.endswith('"'):
         clean_title = clean_title[1:-1].strip()
 
