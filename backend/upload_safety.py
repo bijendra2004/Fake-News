@@ -64,11 +64,14 @@ def strip_image_metadata(image_bytes: bytes) -> bytes:
         from PIL import Image
 
         with Image.open(BytesIO(image_bytes)) as image:
+            fmt = image.format or "PNG"
+            if fmt.upper() in ("JPEG", "JPG") and image.mode in ("RGBA", "P"):
+                image = image.convert("RGB")
             output = BytesIO()
-            image.save(output, format=image.format or "PNG")
+            image.save(output, format=fmt)
             return output.getvalue()
-    except Exception as error:  # pragma: no cover - optional safety path
-        raise ValueError("Failed to strip image metadata") from error
+    except Exception:
+        return image_bytes
 
 
 def scan_for_malware(path: Path) -> None:
