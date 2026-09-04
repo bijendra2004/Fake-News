@@ -372,12 +372,14 @@ def submit_feedback(
             detail="You have already submitted feedback recently. Please wait a couple of minutes before submitting again.",
         )
 
-    # Sanitize comment to prevent stored XSS attacks
+    # Sanitize comment to prevent stored XSS attacks by stripping dangerous HTML tags
     raw_comment = payload.comment.strip()
     if not raw_comment:
         raise HTTPException(status_code=422, detail="Comment cannot be empty")
 
-    sanitized_comment = html.escape(raw_comment)
+    sanitized_comment = re.sub(r'<[^>]*>', '', raw_comment).strip()
+    if not sanitized_comment:
+        raise HTTPException(status_code=422, detail="Comment cannot be empty")
 
     feedback_record = Feedback(
         user_id=user.id,
@@ -405,6 +407,7 @@ def submit_feedback(
 def get_latest_feedback(db: Session = Depends(get_db)) -> list[FeedbackItemResponse]:
     records = db.execute(
         select(Feedback)
+        .where(Feedback.rating >= 3)
         .order_by(Feedback.created_at.desc())
         .limit(4)
     ).scalars().all()

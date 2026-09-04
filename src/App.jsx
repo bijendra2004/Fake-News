@@ -889,7 +889,11 @@ function App() {
       setFeedbackComment('')
       setFeedbackRating(0)
       if (payload?.feedback) {
-        setFeedbacks((prev) => [payload.feedback, ...prev.filter((f) => f.id !== payload.feedback.id)].slice(0, 4))
+        if (payload.feedback.rating >= 3) {
+          setFeedbacks((prev) => [payload.feedback, ...prev.filter((f) => f.id !== payload.feedback.id)].slice(0, 4))
+        } else {
+          fetchLatestFeedbacks()
+        }
       } else {
         fetchLatestFeedbacks()
       }
@@ -1543,17 +1547,22 @@ function App() {
                           </div>
 
                           <p className="mt-3 line-clamp-4 font-sans text-sm leading-relaxed text-black/80 dark:text-white/80">
-                            "{item.comment}"
+                            "{decodeHtmlEntities(item.comment)}"
                           </p>
                         </div>
 
-                        <div className="mt-4 flex items-center gap-2 border-t border-black/10 pt-3 dark:border-white/10">
-                          <span className="flex h-5 w-5 items-center justify-center bg-black/5 font-mono text-[0.65rem] font-bold text-black/70 dark:bg-white/10 dark:text-white/70">
-                            {(item.email || 'U').charAt(0).toUpperCase()}
+                        <div className="mt-4 flex items-center gap-3 border-t border-black/10 pt-3 dark:border-white/10">
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center bg-black/5 font-mono text-xs font-bold text-black/80 dark:bg-white/10 dark:text-white/80">
+                            {(extractFirstName(item.email) || item.email || 'U').charAt(0).toUpperCase()}
                           </span>
-                          <span className="truncate font-mono text-xs font-bold tracking-tight text-black/60 dark:text-white/60">
-                            {item.email}
-                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate font-mono text-xs font-black uppercase tracking-wider text-black dark:text-white">
+                              {extractFirstName(item.email) || 'USER'}
+                            </div>
+                            <div className="truncate font-mono text-[0.68rem] font-medium tracking-tight text-black/50 dark:text-white/50">
+                              {item.email}
+                            </div>
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -2095,6 +2104,17 @@ function formatRelativeTime(isoString) {
   } catch {
     return ''
   }
+}
+
+function decodeHtmlEntities(str) {
+  if (!str || typeof str !== 'string') return ''
+  return str
+    .replace(/&#x27;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
 }
 
 export default App
