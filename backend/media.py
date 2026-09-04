@@ -102,33 +102,26 @@ def extract_text_from_image(image_path: Path, user_context: str | None = None) -
             logger.warning("Gemini Vision analysis failed: %s, falling back to OCR", error)
 
     # 2. Fallback to Tesseract OCR
-    if pytesseract is None:
-        if clean_context:
-            return clean_context
-        raise MediaProcessingError("Could not extract readable text from the image. Please enter the claim as text.")
-
-    try:
-        with Image.open(image_path) as image:
-            # Try Hindi + English if available, else standard
-            try:
-                text = pytesseract.image_to_string(image, lang="hin+eng")
-            except Exception:
-                text = pytesseract.image_to_string(image)
-    except Exception as error:
-        if clean_context:
-            return clean_context
-        raise MediaProcessingError("Failed to extract text from the image. Please enter the claim as text.") from error
-
-    normalized = normalize_text(text)
-    if not normalized or len(normalized) < 5:
-        if clean_context:
-            return clean_context
-        raise MediaProcessingError("No readable text was found in the uploaded image")
+    if pytesseract is not None:
+        try:
+            with Image.open(image_path) as image:
+                # Try Hindi + English if available, else standard
+                try:
+                    text = pytesseract.image_to_string(image, lang="hin+eng")
+                except Exception:
+                    text = pytesseract.image_to_string(image)
+                normalized = normalize_text(text)
+                if normalized and len(normalized) >= 5:
+                    if clean_context:
+                        return f"{clean_context}\n\n[Text in image: {normalized}]"
+                    return normalized
+        except Exception as error:
+            logger.warning("Tesseract OCR extraction failed: %s", error)
 
     if clean_context:
-        return f"{clean_context}\n\n[Text in image: {normalized}]"
+        return clean_context
 
-    return normalized
+    raise MediaProcessingError("No readable text was found in the uploaded image. Please enter the claim directly or provide additional context.")
 
 
 def _analyze_image_gemini(image_path: Path, api_key: str, user_context: str = "") -> str:
@@ -148,10 +141,11 @@ def _analyze_image_gemini(image_path: Path, api_key: str, user_context: str = ""
     mime_type = mime_map.get(suffix, "image/jpeg")
 
     models_to_try = [
-        "gemini-3.5-flash-lite",
-        "gemini-3.5-flash",
-        "gemini-3.7-flash",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
         "gemini-flash-latest",
+        "gemini-1.5-flash-8b",
+        "gemini-2.0-flash",
     ]
 
     context_prompt = ""
@@ -212,13 +206,11 @@ def _analyze_image_gemini(image_path: Path, api_key: str, user_context: str = ""
             error_body = exc.read().decode("utf-8", errors="ignore") if exc.fp else ""
             logger.warning("Gemini Vision model %s failed (HTTP %s): %s", model_name, exc.code, error_body[:200])
             last_error = exc
-            if exc.code == 404:
-                continue
-            break
+            continue
         except Exception as exc:
             logger.warning("Gemini Vision model %s error: %s", model_name, exc)
             last_error = exc
-            break
+            continue
 
     if last_error:
         raise last_error

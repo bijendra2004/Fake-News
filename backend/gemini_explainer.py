@@ -37,7 +37,7 @@ class ExplanationResult:
 class GeminiExplainer:
     def __init__(self) -> None:
         self.api_key = (os.getenv("GEMINI_API_KEY") or "").strip()
-        self.model = (os.getenv("GEMINI_MODEL") or "gemini-3.5-flash-lite").strip()
+        self.model = (os.getenv("GEMINI_MODEL") or "gemini-2.5-flash").strip()
         self.api_version = (os.getenv("GEMINI_API_VERSION") or "v1beta").strip()
         self.fact_check_api_key = (os.getenv("GOOGLE_FACTCHECK_API_KEY") or "").strip()
         self.tavily_api_key = (os.getenv("TAVILY_API_KEY") or "").strip()
@@ -45,7 +45,7 @@ class GeminiExplainer:
         # Groq provider config
         self.llm_provider = (os.getenv("LLM_PROVIDER") or "gemini").strip().lower()
         self.groq_api_key = (os.getenv("GROQ_API_KEY") or "").strip()
-        self.groq_model = (os.getenv("GROQ_MODEL") or "qwen/qwen3.6-27b").strip()
+        self.groq_model = (os.getenv("GROQ_MODEL") or "llama-3.3-70b-versatile").strip()
 
         logger.info(
             "LLM provider=%s, groq_model=%s, gemini_model=%s",
@@ -53,15 +53,10 @@ class GeminiExplainer:
         )
 
     def ensure_configured(self) -> None:
-        if self.llm_provider == "groq":
-            if not self.groq_api_key:
-                raise GeminiExplanationError("GROQ_API_KEY is not configured but LLM_PROVIDER=groq")
-        elif not self.api_key:
-            raise GeminiExplanationError("GEMINI_API_KEY is not configured")
+        if not self.groq_api_key and not self.api_key:
+            raise GeminiExplanationError("Neither GEMINI_API_KEY nor GROQ_API_KEY is configured")
 
     def explain(self, text: str, classifier_signal: dict[str, Any]) -> ExplanationResult:
-        self.ensure_configured()
-
         # Run Tavily search and Google Fact Check API concurrently
         import concurrent.futures
         tavily_results: list[dict[str, Any]] = []
@@ -98,12 +93,32 @@ class GeminiExplainer:
             web_search_results=tavily_results,
         )
 
-        # --- LLM call (provider-agnostic — Tavily provides grounding context) ---
-        text_output = self._call_llm(prompt, temperature=0.2)
+        # --- LLM call with fallback across providers and heuristic fallback ---
+        try:
+            text_output = self._call_llm(prompt, temperature=0.2)
+            logger.info("LLM raw text output: %s", text_output[:500])
+            parsed = self._parse_response_json(text_output)
+            return self._validate_response(parsed, sources=sources, grounded=grounded)
+        except Exception as exc:
+            logger.warning("All LLM reasoning providers failed: %s. Using heuristic fallback.", exc)
+            confidence = float(classifier_signal.get("confidence", 0.5))
+            label = str(classifier_signal.get("label", "NEEDS_REVIEW")).upper()
+            pct = int(round(confidence * 100)) if label in ("LIKELY_REAL", "REAL") else int(round((1 - confidence) * 100))
+            if label not in ("LIKELY_REAL", "LIKELY_FAKE", "NEEDS_REVIEW", "INSUFFICIENT_EVIDENCE"):
+                label = "NEEDS_REVIEW"
+                pct = 50
 
-        logger.info("LLM raw text output: %s", text_output[:500])
-        parsed = self._parse_response_json(text_output)
-        return self._validate_response(parsed, sources=sources, grounded=grounded)
+            return ExplanationResult(
+                percentage=pct,
+                verdict=label,
+                explanation=[
+                    "Automated ML classification model evaluated this statement.",
+                    "Live external reasoning was unavailable or rate-limited; baseline statistical heuristics were applied.",
+                ],
+                corrected_info=None,
+                sources=sources,
+                grounded=grounded,
+            )
 
     def _search_tavily(self, query: str) -> list[dict[str, Any]]:
         """Search the web using Tavily API for real-time grounding context.
@@ -153,21 +168,44 @@ class GeminiExplainer:
             return []
 
     def _call_llm(self, prompt: str, *, temperature: float = 0.2) -> str:
-        """Route LLM call to the configured provider and return raw text output."""
-        if self.llm_provider == "groq":
+        """Route LLM call with automatic cross-provider fallback (Groq <-> Gemini)."""
+        primary = self.llm_provider
+        last_err: Exception | None = None
+
+        if primary == "groq" and self.groq_api_key:
+            try:
+                return self._call_groq(prompt, temperature=temperature)
+            except Exception as e:
+                logger.warning("Groq provider failed (%s), attempting Gemini fallback", e)
+                last_err = e
+                if self.api_key:
+                    return self._call_gemini_raw(prompt, temperature=temperature)
+                raise
+        elif self.api_key:
+            try:
+                return self._call_gemini_raw(prompt, temperature=temperature)
+            except Exception as e:
+                logger.warning("Gemini provider failed (%s), attempting Groq fallback", e)
+                last_err = e
+                if self.groq_api_key:
+                    return self._call_groq(prompt, temperature=temperature)
+                raise
+        elif self.groq_api_key:
             return self._call_groq(prompt, temperature=temperature)
         else:
-            # Gemini path
-            payload = {
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {"temperature": temperature},
-            }
-            raw = self._request_with_fallback(
-                json.dumps(payload).encode("utf-8"),
-                grounding_active=False,
-            )
-            response_payload = json.loads(raw)
-            return self._extract_text_output(response_payload)
+            raise GeminiExplanationError("No valid LLM credentials configured (Gemini/Groq)")
+
+    def _call_gemini_raw(self, prompt: str, *, temperature: float = 0.2) -> str:
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": temperature},
+        }
+        raw = self._request_with_fallback(
+            json.dumps(payload).encode("utf-8"),
+            grounding_active=False,
+        )
+        response_payload = json.loads(raw)
+        return self._extract_text_output(response_payload)
 
     def _call_groq(self, prompt: str, *, temperature: float = 0.2) -> str:
         """Call Groq's OpenAI-compatible chat completions API with multi-model rate-limit fallback."""
@@ -239,7 +277,14 @@ class GeminiExplainer:
         self, request_body: bytes, *, grounding_active: bool = False
     ) -> str:
         models_to_try: list[str] = []
-        for model_name in [self.model, "gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"]:
+        for model_name in [
+            self.model,
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
+            "gemini-flash-latest",
+            "gemini-1.5-flash-8b",
+            "gemini-2.0-flash",
+        ]:
             normalized = model_name.strip()
             if normalized and normalized not in models_to_try:
                 models_to_try.append(normalized)
@@ -251,7 +296,6 @@ class GeminiExplainer:
                 f"?key={self.api_key}"
             )
             logger.info("Calling Gemini API endpoint: %s (grounding=%s)", request_url.split("?")[0], grounding_active)
-            logger.info("Gemini request payload: %s", request_body.decode("utf-8"))
             try:
                 req = urllib.request.Request(
                     request_url,
@@ -264,25 +308,21 @@ class GeminiExplainer:
             except urllib.error.HTTPError as error:
                 error_body = error.read().decode("utf-8", errors="ignore") if error.fp else ""
                 logger.error(
-                    "GEMINI API GROUNDING ATTEMPT FAILED -> model=%s status_code=%s full_error_body=\n%s",
-                    model_name, error.code, error_body,
+                    "GEMINI API ATTEMPT FAILED -> model=%s status_code=%s body=%s",
+                    model_name, error.code, error_body[:200],
                 )
                 last_error = error
 
-                # If grounding is active and we got a billing/permission/quota error,
-                # raise a specific exception so the caller can log and fall back to non-grounded.
                 if grounding_active and error.code in (400, 403, 429):
                     raise GeminiGroundingUnavailableError(
                         f"Grounding failed with HTTP {error.code}: {error_body}"
                     ) from error
 
-                if error.code == 404:
-                    continue
-                break
+                continue
             except Exception as error:
                 logger.exception("Gemini API request failed for model=%s", model_name)
                 last_error = error
-                break
+                continue
 
         raise GeminiExplanationError("Gemini API request failed for all configured models") from last_error
 

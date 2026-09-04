@@ -306,20 +306,28 @@ def predict_image(
         try:
             extracted_text = extract_text_from_image(stored_file, user_context=context)
         except MediaProcessingError as error:
-            # If OCR finds no readable text, return a clear, non-error response
             msg = str(error)
-            if "No readable text" in msg or "No readable text was found" in msg:
-                return PredictMediaResponse(
-                    percentage=0,
-                    verdict="NO_TEXT_FOUND",
-                    explanation=["No readable text found in this image."],
-                    corrected_info=None,
-                    extracted_text=None,
-                )
-            # Other media errors are treated as bad requests
-            raise HTTPException(status_code=400, detail=msg) from error
+            return PredictMediaResponse(
+                label="NEEDS_REVIEW",
+                confidence=0.5,
+                percentage=50,
+                verdict="NO_TEXT_FOUND",
+                explanation=[msg],
+                corrected_info=None,
+                extracted_text=None,
+            )
+        except Exception as error:
+            logger.exception("Unexpected error in image extraction: %s", error)
+            return PredictMediaResponse(
+                label="NEEDS_REVIEW",
+                confidence=0.5,
+                percentage=50,
+                verdict="NO_TEXT_FOUND",
+                explanation=["Could not extract readable text or analyze the image. Please enter the claim directly."],
+                corrected_info=None,
+                extracted_text=None,
+            )
 
-        # Reuse the exact same text prediction pipeline (it will re-check auth and record history)
         prediction = predict_from_text(request, extracted_text, db)
         return PredictMediaResponse(**prediction.model_dump(), extracted_text=extracted_text)
     finally:
@@ -333,13 +341,24 @@ def predict_image(
 
 @app.post("/api/predict-voice", response_model=PredictMediaResponse)
 def predict_voice(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)) -> PredictMediaResponse:
+    if not get_authenticated_email(request):
+        raise HTTPException(status_code=401, detail={"requires_login": True})
     stored_file = store_analysis_upload(file, {"wav", "mp3", "webm", "mp4"})
     try:
-        transcript = transcribe_audio_file(stored_file)
+        try:
+            transcript = transcribe_audio_file(stored_file)
+        except MediaProcessingError as error:
+            return PredictMediaResponse(
+                label="NEEDS_REVIEW",
+                confidence=0.5,
+                percentage=50,
+                verdict="NO_AUDIO_FOUND",
+                explanation=[str(error)],
+                corrected_info=None,
+                transcript=None,
+            )
         prediction = predict_from_text(request, transcript, db)
         return PredictMediaResponse(**prediction.model_dump(), transcript=transcript)
-    except MediaProcessingError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
     finally:
         try:
             if stored_file.exists():
@@ -350,6 +369,8 @@ def predict_voice(request: Request, file: UploadFile = File(...), db: Session = 
 
 @app.post("/api/predict-link", response_model=PredictMediaResponse)
 def predict_link(request: Request, payload: PredictLinkRequest, db: Session = Depends(get_db)) -> PredictMediaResponse:
+    if not get_authenticated_email(request):
+        raise HTTPException(status_code=401, detail={"requires_login": True})
     try:
         extracted = extract_text_from_url(payload.url)
         combined_text = extracted.text
@@ -362,7 +383,15 @@ def predict_link(request: Request, payload: PredictLinkRequest, db: Session = De
             source_domain=extracted.source_domain,
         )
     except MediaProcessingError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+        return PredictMediaResponse(
+            label="NEEDS_REVIEW",
+            confidence=0.5,
+            percentage=50,
+            verdict="LINK_UNREADABLE",
+            explanation=[str(error)],
+            corrected_info=None,
+            extracted_text=None,
+        )
 
 
 @app.post("/api/feedback", response_model=FeedbackCreateResponse)
