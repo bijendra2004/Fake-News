@@ -142,8 +142,8 @@ class PredictRequest(BaseModel):
 
 
 class PredictResponse(BaseModel):
-    label: str
-    confidence: float
+    label: str = "NEEDS_REVIEW"
+    confidence: float = 0.5
     percentage: int
     verdict: str
     explanation: list[str]
@@ -662,6 +662,8 @@ def predict_from_text(request: Request, text: str, db: Session) -> PredictRespon
     )
     db.commit()
     return PredictResponse(
+        label=str(prediction.get("label", "NEEDS_REVIEW")),
+        confidence=float(prediction.get("confidence", 0.5)),
         percentage=explained.percentage,
         verdict=clean_response_text(explained.verdict),
         explanation=[clean_response_text(item) for item in explained.explanation],
