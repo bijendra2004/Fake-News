@@ -23,6 +23,7 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     history: Mapped[list[SearchHistory]] = relationship(back_populates="user")
+    feedbacks: Mapped[list[Feedback]] = relationship(back_populates="user")
 
 
 class SearchHistory(Base):
@@ -36,6 +37,19 @@ class SearchHistory(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     user: Mapped[Optional[User]] = relationship(back_populates="history")
+
+
+class Feedback(Base):
+    __tablename__ = "feedback"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    rating: Mapped[int] = mapped_column(Integer, nullable=False)
+    comment: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    user: Mapped[User] = relationship(back_populates="feedbacks")
 
 
 class FreeUsageTracking(Base):
@@ -113,10 +127,17 @@ def init_db(engine) -> None:
 
         if inspector.has_table("refresh_tokens"):
             token_columns = {column["name"] for column in inspector.get_columns("refresh_tokens")}
+            is_sqlite = engine.dialect.name == "sqlite"
             if "issued_at" not in token_columns:
-                connection.execute(text("ALTER TABLE refresh_tokens ADD COLUMN issued_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP"))
+                if is_sqlite:
+                    connection.execute(text("ALTER TABLE refresh_tokens ADD COLUMN issued_at TIMESTAMP"))
+                else:
+                    connection.execute(text("ALTER TABLE refresh_tokens ADD COLUMN issued_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP"))
             if "last_active_at" not in token_columns:
-                connection.execute(text("ALTER TABLE refresh_tokens ADD COLUMN last_active_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP"))
+                if is_sqlite:
+                    connection.execute(text("ALTER TABLE refresh_tokens ADD COLUMN last_active_at TIMESTAMP"))
+                else:
+                    connection.execute(text("ALTER TABLE refresh_tokens ADD COLUMN last_active_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP"))
             if "device_fingerprint" not in token_columns:
                 connection.execute(text("ALTER TABLE refresh_tokens ADD COLUMN device_fingerprint VARCHAR(255)"))
 

@@ -57,9 +57,35 @@ function App() {
   const [requiresCaptcha, setRequiresCaptcha] = useState(false)
   const [captchaToken, setCaptchaToken] = useState('')
   const [greetingInfo, setGreetingInfo] = useState(() => getGreetingDetails())
+  const [feedbacks, setFeedbacks] = useState([])
+  const [feedbackRating, setFeedbackRating] = useState(0)
+  const [feedbackHoverRating, setFeedbackHoverRating] = useState(0)
+  const [feedbackComment, setFeedbackComment] = useState('')
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false)
+  const [feedbackSuccess, setFeedbackSuccess] = useState(false)
+  const [feedbackError, setFeedbackError] = useState('')
   const captchaContainerRef = useRef(null)
   const accountMenuRef = useRef(null)
   const googleAuthTimeoutRef = useRef(0)
+
+  const fetchLatestFeedbacks = async () => {
+    if (!API_BASE_URL) return
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/feedback/latest`)
+      if (response.ok) {
+        const data = await response.json()
+        if (Array.isArray(data)) {
+          setFeedbacks(data)
+        }
+      }
+    } catch {
+      // Ignore network errors on public list
+    }
+  }
+
+  useEffect(() => {
+    fetchLatestFeedbacks()
+  }, [])
 
   useEffect(() => {
     const updateGreeting = () => setGreetingInfo(getGreetingDetails())
@@ -821,6 +847,62 @@ function App() {
     }
   }
 
+  const handleFeedbackSubmit = async (e) => {
+    if (e) e.preventDefault()
+    if (!accessToken || !accountEmail) {
+      setShowLoginPrompt(true)
+      return
+    }
+    if (feedbackRating < 1 || feedbackRating > 5 || !feedbackComment.trim()) {
+      return
+    }
+
+    setIsSubmittingFeedback(true)
+    setFeedbackError('')
+    setFeedbackSuccess(false)
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/feedback`, {
+        method: 'POST',
+        headers: buildApiHeaders({ 'Content-Type': 'application/json' }),
+        credentials: 'include',
+        body: JSON.stringify({
+          rating: feedbackRating,
+          comment: feedbackComment.trim(),
+        }),
+      })
+
+      const payload = await readJsonResponse(response)
+      if (!response.ok) {
+        if (response.status === 401) {
+          setShowLoginPrompt(true)
+          setFeedbackError('Please sign in to submit feedback.')
+        } else if (response.status === 429) {
+          setFeedbackError(payload?.detail || 'You recently submitted feedback. Please wait a couple of minutes before submitting again.')
+        } else {
+          setFeedbackError(payload?.detail || 'Failed to submit feedback. Please try again.')
+        }
+        return
+      }
+
+      setFeedbackSuccess(true)
+      setFeedbackComment('')
+      setFeedbackRating(0)
+      if (payload?.feedback) {
+        setFeedbacks((prev) => [payload.feedback, ...prev.filter((f) => f.id !== payload.feedback.id)].slice(0, 4))
+      } else {
+        fetchLatestFeedbacks()
+      }
+      setTimeout(() => {
+        setFeedbackSuccess(false)
+      }, 6000)
+    } catch {
+      setFeedbackError('Network error while submitting feedback. Please try again.')
+    } finally {
+      setIsSubmittingFeedback(false)
+    }
+  }
+
   const statusLabel = useMemo(() => {
     if (recordingState === 'recording') return `CAPTURING ${formatSeconds(recordingSeconds)} CLIP`
     if (recordingState === 'ready' && audioBlob) return 'CAPTURED CLIP - READY TO CHECK'
@@ -1306,6 +1388,182 @@ function App() {
           </div>
         </section>
 
+        <section id="feedback" className="border-t border-black/10 bg-[#faf9f5] py-14 dark:border-white/10 dark:bg-[#0c0c0c] sm:py-20">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="mb-10 flex flex-col items-start justify-between gap-4 md:flex-row md:items-end">
+              <div>
+                <span className="font-mono text-xs font-extrabold uppercase tracking-[0.3em] text-[#ef4444]">COMMUNITY FEEDBACK</span>
+                <h2 className="mt-3 text-3xl font-black uppercase tracking-tight text-black dark:text-white sm:text-4xl">
+                  What our users <span className="text-[#ef4444]">are saying.</span>
+                </h2>
+              </div>
+              <p className="max-w-md font-sans text-sm text-black/60 dark:text-white/60">
+                Share your experience with SachLens. Your feedback directly shapes our verification accuracy and features.
+              </p>
+            </div>
+
+            <div className="grid gap-8 lg:grid-cols-12">
+              {/* Left Column: Feedback Form or Login Gate */}
+              <div className="lg:col-span-5">
+                <div className="border border-black/15 bg-white p-6 dark:border-white/15 dark:bg-[#111111] sm:p-8">
+                  <div className="font-mono text-xs font-bold uppercase tracking-[0.28em] text-black/45 dark:text-white/45">LEAVE A REVIEW</div>
+
+                  {accessToken && accountEmail ? (
+                    <form onSubmit={handleFeedbackSubmit} className="mt-6 space-y-5">
+                      <div>
+                        <label className="block font-mono text-xs font-bold uppercase tracking-[0.24em] text-black/60 dark:text-white/60">
+                          YOUR RATING
+                        </label>
+                        <div className="mt-2 flex items-center gap-2">
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <button
+                              key={star}
+                              type="button"
+                              onClick={() => setFeedbackRating(star)}
+                              onMouseEnter={() => setFeedbackHoverRating(star)}
+                              onMouseLeave={() => setFeedbackHoverRating(0)}
+                              className="p-1 text-black/25 transition-transform hover:scale-110 focus:outline-none dark:text-white/25"
+                              aria-label={`Rate ${star} star${star > 1 ? 's' : ''}`}
+                            >
+                              <StarIcon
+                                filled={(feedbackHoverRating || feedbackRating) >= star}
+                                className={`h-7 w-7 transition-colors ${
+                                  (feedbackHoverRating || feedbackRating) >= star
+                                    ? 'text-[#ef4444]'
+                                    : 'text-black/20 hover:text-[#ef4444]/60 dark:text-white/20'
+                                }`}
+                              />
+                            </button>
+                          ))}
+                          <span className="ml-2 font-mono text-xs font-bold uppercase tracking-widest text-black/50 dark:text-white/50">
+                            {feedbackRating > 0 ? `${feedbackRating}/5 STARS` : 'SELECT RATING'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <label htmlFor="feedback-comment" className="font-mono text-xs font-bold uppercase tracking-[0.24em] text-black/60 dark:text-white/60">
+                            YOUR FEEDBACK
+                          </label>
+                          <span className={`font-mono text-[0.65rem] font-bold uppercase tracking-[0.2em] ${feedbackComment.length >= 450 ? 'text-[#ef4444]' : 'text-black/40 dark:text-white/40'}`}>
+                            {feedbackComment.length}/500
+                          </span>
+                        </div>
+                        <textarea
+                          id="feedback-comment"
+                          rows={4}
+                          maxLength={500}
+                          value={feedbackComment}
+                          onChange={(e) => setFeedbackComment(e.target.value)}
+                          placeholder="How was your verification experience? Tell us what you liked or how we can improve..."
+                          className="mt-2 w-full resize-none border border-black/15 bg-[#fbfbf8] p-3 font-sans text-sm text-black outline-none placeholder:text-black/35 transition focus:border-black dark:border-white/15 dark:bg-[#0b0b0b] dark:text-white dark:placeholder:text-white/35 dark:focus:border-white"
+                        />
+                      </div>
+
+                      {feedbackError && (
+                        <div className="border border-[#ef4444]/40 bg-[#ef4444]/10 p-3 font-mono text-xs font-bold text-[#ef4444]">
+                          {feedbackError}
+                        </div>
+                      )}
+
+                      {feedbackSuccess && (
+                        <div className="border border-emerald-600/40 bg-emerald-500/10 p-3 font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                          ✓ THANK YOU! YOUR FEEDBACK HAS BEEN RECORDED.
+                        </div>
+                      )}
+
+                      <button
+                        type="submit"
+                        disabled={isSubmittingFeedback || feedbackRating === 0 || !feedbackComment.trim()}
+                        className="w-full border border-black bg-black py-3.5 font-mono text-xs font-bold uppercase tracking-[0.24em] text-white transition hover:bg-black/90 disabled:cursor-not-allowed disabled:border-black/20 disabled:bg-black/10 disabled:text-black/35 dark:border-white dark:bg-white dark:text-black dark:hover:bg-white/90 dark:disabled:border-white/20 dark:disabled:bg-white/10 dark:disabled:text-white/35"
+                      >
+                        {isSubmittingFeedback ? 'SUBMITTING...' : 'SUBMIT FEEDBACK'}
+                      </button>
+                    </form>
+                  ) : (
+                    <div className="mt-6 flex flex-col items-center justify-center border border-dashed border-black/20 p-8 text-center dark:border-white/20">
+                      <div className="flex h-12 w-12 items-center justify-center bg-black/5 text-black dark:bg-white/5 dark:text-white">
+                        <UserIcon className="h-6 w-6 text-black/60 dark:text-white/60" />
+                      </div>
+                      <h3 className="mt-4 font-mono text-sm font-bold uppercase tracking-wider text-black dark:text-white">
+                        SIGN IN TO LEAVE FEEDBACK
+                      </h3>
+                      <p className="mt-2 max-w-xs font-sans text-xs text-black/60 dark:text-white/60">
+                        Log in to share your thoughts and help improve fact-checking accuracy for everyone.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setShowLoginPrompt(true)}
+                        className="mt-5 border border-black bg-black px-6 py-2.5 font-mono text-xs font-bold uppercase tracking-[0.24em] text-white transition hover:bg-[#ef4444] hover:border-[#ef4444] dark:border-white dark:bg-white dark:text-black dark:hover:bg-[#ef4444] dark:hover:border-[#ef4444] dark:hover:text-white"
+                      >
+                        SIGN IN
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Right Column: Latest Feedback Cards Grid */}
+              <div className="lg:col-span-7">
+                <div className="mb-4 flex items-center justify-between">
+                  <span className="font-mono text-xs font-bold uppercase tracking-[0.28em] text-black/45 dark:text-white/45">
+                    RECENT REVIEWS {feedbacks.length > 0 && `(${feedbacks.length})`}
+                  </span>
+                </div>
+
+                {feedbacks.length === 0 ? (
+                  <div className="flex h-64 flex-col items-center justify-center border border-dashed border-black/20 bg-white p-8 text-center dark:border-white/20 dark:bg-[#111111]">
+                    <StarIcon className="h-8 w-8 text-black/25 dark:text-white/25" />
+                    <p className="mt-3 font-mono text-xs font-bold uppercase tracking-widest text-black/60 dark:text-white/60">
+                      NO FEEDBACK YET — BE THE FIRST TO SHARE YOURS
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {feedbacks.map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex flex-col justify-between border border-black/15 bg-white p-5 transition hover:border-black/30 dark:border-white/15 dark:bg-[#111111] dark:hover:border-white/30"
+                      >
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1">
+                              {[1, 2, 3, 4, 5].map((star) => (
+                                <StarIcon
+                                  key={star}
+                                  filled={item.rating >= star}
+                                  className={`h-4 w-4 ${item.rating >= star ? 'text-[#ef4444]' : 'text-black/15 dark:text-white/15'}`}
+                                />
+                              ))}
+                            </div>
+                            <span className="font-mono text-[0.65rem] font-bold uppercase tracking-widest text-black/40 dark:text-white/40">
+                              {formatRelativeTime(item.created_at)}
+                            </span>
+                          </div>
+
+                          <p className="mt-3 line-clamp-4 font-sans text-sm leading-relaxed text-black/80 dark:text-white/80">
+                            "{item.comment}"
+                          </p>
+                        </div>
+
+                        <div className="mt-4 flex items-center gap-2 border-t border-black/10 pt-3 dark:border-white/10">
+                          <span className="flex h-5 w-5 items-center justify-center bg-black/5 font-mono text-[0.65rem] font-bold text-black/70 dark:bg-white/10 dark:text-white/70">
+                            {(item.email || 'U').charAt(0).toUpperCase()}
+                          </span>
+                          <span className="truncate font-mono text-xs font-bold tracking-tight text-black/60 dark:text-white/60">
+                            {item.email}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section id="about" className="hero-grid border-t border-black/10 bg-[#f7f6f2] py-14 dark:border-white/10 dark:bg-[#0f0f0f] sm:py-20">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="mb-8">
@@ -1401,6 +1659,10 @@ function App() {
                 <span className="hidden h-3 w-px bg-black/15 dark:bg-white/15 sm:inline-block" aria-hidden="true" />
                 <a href="#how-it-works" className="transition hover:text-[#ef4444] hover:underline hover:underline-offset-4 dark:hover:text-[#ef4444]">
                   HOW IT WORKS
+                </a>
+                <span className="hidden h-3 w-px bg-black/15 dark:bg-white/15 sm:inline-block" aria-hidden="true" />
+                <a href="#feedback" className="transition hover:text-[#ef4444] hover:underline hover:underline-offset-4 dark:hover:text-[#ef4444]">
+                  FEEDBACK
                 </a>
                 <span className="hidden h-3 w-px bg-black/15 dark:bg-white/15 sm:inline-block" aria-hidden="true" />
                 <a href="#about" className="transition hover:text-[#ef4444] hover:underline hover:underline-offset-4 dark:hover:text-[#ef4444]">
@@ -1799,6 +2061,40 @@ function MoonIcon({ className = 'h-4 w-4' }) {
       <path d="M15.5 4.5a7.5 7.5 0 102.1 12.4A8.5 8.5 0 0115.5 4.5z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="miter" />
     </svg>
   )
+}
+
+function StarIcon({ filled = false, className = 'h-4 w-4' }) {
+  return (
+    <svg viewBox="0 0 24 24" fill={filled ? 'currentColor' : 'none'} aria-hidden="true" className={className}>
+      <path
+        d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function formatRelativeTime(isoString) {
+  if (!isoString) return ''
+  try {
+    const date = new Date(isoString)
+    const now = new Date()
+    const diffInSeconds = Math.floor((now - date) / 1000)
+
+    if (diffInSeconds < 60) return 'JUST NOW'
+    const diffInMinutes = Math.floor(diffInSeconds / 60)
+    if (diffInMinutes < 60) return `${diffInMinutes}M AGO`
+    const diffInHours = Math.floor(diffInMinutes / 60)
+    if (diffInHours < 24) return `${diffInHours}H AGO`
+    const diffInDays = Math.floor(diffInHours / 24)
+    if (diffInDays < 30) return `${diffInDays}D AGO`
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase()
+  } catch {
+    return ''
+  }
 }
 
 export default App

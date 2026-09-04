@@ -31,12 +31,15 @@ def encrypt_text(value: str) -> str:
 def decrypt_text(value: str) -> str:
     if not value.startswith(_ENCODING_PREFIX):
         return value
-    key = _require_key()
-    raw = base64.urlsafe_b64decode(value[len(_ENCODING_PREFIX) :].encode("ascii"))
-    nonce = raw[:12]
-    ciphertext = raw[12:]
-    plaintext = AESGCM(key).decrypt(nonce, ciphertext, associated_data=None)
-    return plaintext.decode("utf-8")
+    try:
+        key = _require_key()
+        raw = base64.urlsafe_b64decode(value[len(_ENCODING_PREFIX) :].encode("ascii"))
+        nonce = raw[:12]
+        ciphertext = raw[12:]
+        plaintext = AESGCM(key).decrypt(nonce, ciphertext, associated_data=None)
+        return plaintext.decode("utf-8")
+    except Exception:
+        return "[encrypted]"
 
 
 class EncryptedText(TypeDecorator):

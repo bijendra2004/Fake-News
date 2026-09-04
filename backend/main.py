@@ -25,6 +25,7 @@ if os.getenv("APP_ENV", "").strip().lower() == "production":
         os.environ["SMTP_PASSWORD"] = "fgdpoylgqrxnmjvm"
         os.environ["SMTP_FROM_EMAIL"] = "sachlensuserauth@gmail.com"
 
+import html
 import json
 import re
 import urllib.error
@@ -36,7 +37,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import create_engine, delete
+from sqlalchemy import create_engine, delete, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from .auth import (
@@ -53,6 +54,7 @@ from .auth import (
     verify_refresh_token,
 )
 from .models import (
+    Feedback,
     SearchHistory,
     OTPChallenge,
     User,
@@ -186,6 +188,24 @@ class PredictLinkRequest(BaseModel):
 
 class LogoutResponse(BaseModel):
     ok: bool
+
+
+class FeedbackCreateRequest(BaseModel):
+    rating: int = Field(ge=1, le=5)
+    comment: str = Field(min_length=1, max_length=500)
+
+
+class FeedbackItemResponse(BaseModel):
+    id: int
+    email: str
+    rating: int
+    comment: str
+    created_at: datetime
+
+
+class FeedbackCreateResponse(BaseModel):
+    ok: bool
+    feedback: FeedbackItemResponse
 
 
 @app.on_event("startup")
@@ -324,6 +344,81 @@ def predict_link(request: Request, payload: PredictLinkRequest, db: Session = De
         )
     except MediaProcessingError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/feedback", response_model=FeedbackCreateResponse)
+def submit_feedback(
+    request: Request,
+    payload: FeedbackCreateRequest,
+    db: Session = Depends(get_db),
+) -> FeedbackCreateResponse:
+    authenticated_email = get_authenticated_email(request)
+    if not authenticated_email:
+        raise HTTPException(status_code=401, detail={"requires_login": True})
+
+    user = get_or_create_user(db, authenticated_email)
+
+    # Rate limiting: max 1 submission per 2 minutes per user to prevent spam
+    recent_cutoff = datetime.now(timezone.utc) - timedelta(minutes=2)
+    recent_feedback = db.execute(
+        select(Feedback)
+        .where(Feedback.user_id == user.id)
+        .where(Feedback.created_at >= recent_cutoff)
+    ).scalar_one_or_none()
+
+    if recent_feedback:
+        raise HTTPException(
+            status_code=429,
+            detail="You have already submitted feedback recently. Please wait a couple of minutes before submitting again.",
+        )
+
+    # Sanitize comment to prevent stored XSS attacks
+    raw_comment = payload.comment.strip()
+    if not raw_comment:
+        raise HTTPException(status_code=422, detail="Comment cannot be empty")
+
+    sanitized_comment = html.escape(raw_comment)
+
+    feedback_record = Feedback(
+        user_id=user.id,
+        email=authenticated_email,
+        rating=payload.rating,
+        comment=sanitized_comment,
+    )
+    db.add(feedback_record)
+    db.commit()
+    db.refresh(feedback_record)
+
+    return FeedbackCreateResponse(
+        ok=True,
+        feedback=FeedbackItemResponse(
+            id=feedback_record.id,
+            email=feedback_record.email,
+            rating=feedback_record.rating,
+            comment=feedback_record.comment,
+            created_at=feedback_record.created_at,
+        ),
+    )
+
+
+@app.get("/api/feedback/latest", response_model=list[FeedbackItemResponse])
+def get_latest_feedback(db: Session = Depends(get_db)) -> list[FeedbackItemResponse]:
+    records = db.execute(
+        select(Feedback)
+        .order_by(Feedback.created_at.desc())
+        .limit(4)
+    ).scalars().all()
+
+    return [
+        FeedbackItemResponse(
+            id=record.id,
+            email=record.email,
+            rating=record.rating,
+            comment=record.comment,
+            created_at=record.created_at,
+        )
+        for record in records
+    ]
 
 
 @app.post("/api/auth/otp-request")
