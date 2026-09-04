@@ -172,7 +172,7 @@ class GeminiExplainer:
     def _call_groq(self, prompt: str, *, temperature: float = 0.2) -> str:
         """Call Groq's OpenAI-compatible chat completions API with multi-model rate-limit fallback."""
         models_to_try: list[str] = []
-        for m in [self.groq_model, "qwen/qwen3.8-27b", "openai/gpt-oss-20b", "groq/compound-mini"]:
+        for m in [self.groq_model, "llama-3.3-70b-versatile", "llama-3.1-8b-instant", "gemma2-9b-it"]:
             norm = m.strip()
             if norm and norm not in models_to_try:
                 models_to_try.append(norm)

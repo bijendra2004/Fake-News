@@ -176,8 +176,8 @@ def _analyze_image_gemini(image_path: Path, api_key: str, user_context: str = ""
                 "parts": [
                     {"text": prompt_text},
                     {
-                        "inline_data": {
-                            "mime_type": mime_type,
+                        "inlineData": {
+                            "mimeType": mime_type,
                             "data": base64_image,
                         }
                     },
