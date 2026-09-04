@@ -58,6 +58,7 @@ function App() {
   const [captchaToken, setCaptchaToken] = useState('')
   const [greetingInfo, setGreetingInfo] = useState(() => getGreetingDetails())
   const [feedbacks, setFeedbacks] = useState([])
+  const [totalFeedbackCount, setTotalFeedbackCount] = useState(0)
   const [feedbackRating, setFeedbackRating] = useState(0)
   const [feedbackHoverRating, setFeedbackHoverRating] = useState(0)
   const [feedbackComment, setFeedbackComment] = useState('')
@@ -76,6 +77,14 @@ function App() {
         const data = await response.json()
         if (Array.isArray(data)) {
           setFeedbacks(data)
+          setTotalFeedbackCount(data.length)
+        } else if (data && typeof data === 'object') {
+          if (Array.isArray(data.items)) {
+            setFeedbacks(data.items)
+          }
+          if (typeof data.total_count === 'number') {
+            setTotalFeedbackCount(data.total_count)
+          }
         }
       }
     } catch {
@@ -888,6 +897,7 @@ function App() {
       setFeedbackSuccess(true)
       setFeedbackComment('')
       setFeedbackRating(0)
+      setTotalFeedbackCount((prev) => prev + 1)
       if (payload?.feedback) {
         if (payload.feedback.rating >= 3) {
           setFeedbacks((prev) => [payload.feedback, ...prev.filter((f) => f.id !== payload.feedback.id)].slice(0, 4))
@@ -1512,7 +1522,7 @@ function App() {
               <div className="lg:col-span-7">
                 <div className="mb-4 flex items-center justify-between">
                   <span className="font-mono text-xs font-bold uppercase tracking-[0.28em] text-black/45 dark:text-white/45">
-                    RECENT REVIEWS {feedbacks.length > 0 && `(${feedbacks.length})`}
+                    RECENT REVIEWS {totalFeedbackCount > 0 && `(${totalFeedbackCount})`}
                   </span>
                 </div>
 

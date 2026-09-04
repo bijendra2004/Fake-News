@@ -37,7 +37,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import create_engine, delete, select
+from sqlalchemy import create_engine, delete, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from .auth import (
@@ -90,8 +90,10 @@ def resolve_database_url() -> str:
         return configured
 
     if os.getenv("APP_ENV", "development").lower() == "production":
-        raise RuntimeError("DATABASE_URL must be set in production")
-    return "sqlite:///./sachlens.db"
+        raise RuntimeError("DATABASE_URL environment variable is required in production mode.")
+
+    local_fallback = Path(__file__).resolve().parent / "local.db"
+    return f"sqlite:///{local_fallback}"
 
 
 DATABASE_URL = resolve_database_url()
@@ -101,14 +103,11 @@ settings = load_security_settings()
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
 logger = logging.getLogger("sachlens.backend")
 
-engine = create_engine(
-    DATABASE_URL,
-    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
-    pool_pre_ping=True,
-    pool_recycle=300,
-    future=True,
-)
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+engine = create_engine(DATABASE_URL, connect_args=connect_args)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+prediction_service = PredictionService()
+gemini_explainer = GeminiExplainer()
 
 _is_production = os.getenv("APP_ENV", "development").lower() == "production"
 app = FastAPI(
@@ -120,8 +119,13 @@ app = FastAPI(
     openapi_url=None if _is_production else "/openapi.json",
 )
 
-prediction_service = PredictionService()
-gemini_explainer = GeminiExplainer()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.frontend_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 def get_db():
@@ -133,10 +137,12 @@ def get_db():
 
 
 class PredictRequest(BaseModel):
-    text: str = Field(min_length=1, max_length=5000)
+    text: str = Field(min_length=1, max_length=10000)
 
 
 class PredictResponse(BaseModel):
+    label: str
+    confidence: float
     percentage: int
     verdict: str
     explanation: list[str]
@@ -206,6 +212,11 @@ class FeedbackItemResponse(BaseModel):
 class FeedbackCreateResponse(BaseModel):
     ok: bool
     feedback: FeedbackItemResponse
+
+
+class FeedbackLatestResponse(BaseModel):
+    total_count: int
+    items: list[FeedbackItemResponse]
 
 
 @app.on_event("startup")
@@ -403,8 +414,9 @@ def submit_feedback(
     )
 
 
-@app.get("/api/feedback/latest", response_model=list[FeedbackItemResponse])
-def get_latest_feedback(db: Session = Depends(get_db)) -> list[FeedbackItemResponse]:
+@app.get("/api/feedback/latest", response_model=FeedbackLatestResponse)
+def get_latest_feedback(db: Session = Depends(get_db)) -> FeedbackLatestResponse:
+    total_count = db.execute(select(func.count(Feedback.id))).scalar_one_or_none() or 0
     records = db.execute(
         select(Feedback)
         .where(Feedback.rating >= 3)
@@ -412,16 +424,19 @@ def get_latest_feedback(db: Session = Depends(get_db)) -> list[FeedbackItemRespo
         .limit(4)
     ).scalars().all()
 
-    return [
-        FeedbackItemResponse(
-            id=record.id,
-            email=record.email,
-            rating=record.rating,
-            comment=record.comment,
-            created_at=record.created_at,
-        )
-        for record in records
-    ]
+    return FeedbackLatestResponse(
+        total_count=total_count,
+        items=[
+            FeedbackItemResponse(
+                id=record.id,
+                email=record.email,
+                rating=record.rating,
+                comment=record.comment,
+                created_at=record.created_at,
+            )
+            for record in records
+        ],
+    )
 
 
 @app.post("/api/auth/otp-request")
