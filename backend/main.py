@@ -63,6 +63,7 @@ from .models import (
 )
 from .ml.predict import PredictionService
 from .cleanup import UPLOAD_DIR, start_cleanup_worker
+from .keep_alive import start_keep_alive_worker
 from .gemini_explainer import GeminiExplainer, GeminiExplanationError
 from .mailer import EmailDeliveryError, send_otp_email
 from .media import MediaProcessingError, extract_text_from_image, extract_text_from_url, transcribe_audio_file
@@ -226,6 +227,7 @@ def on_startup() -> None:
     gemini_key_present = bool((os.getenv("GEMINI_API_KEY") or "").strip())
     logger.info("GEMINI_API_KEY configured: %s", gemini_key_present)
     start_cleanup_worker()
+    start_keep_alive_worker(interval_seconds=600)
 
 
 @app.middleware("http")
@@ -278,9 +280,10 @@ app.add_middleware(
 
 
 
+@app.get("/health")
 @app.get("/api/health")
 def health_check():
-    return {"status": "ok"}
+    return {"status": "ok", "message": "Server is active"}
 
 
 @app.post("/api/predict", response_model=PredictResponse)
@@ -576,11 +579,6 @@ async def upload_media(
         raise HTTPException(status_code=503, detail="Upload processing unavailable") from error
 
     return UploadResponse(file_id=destination.name, kind=result.kind)
-
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
 
 
 @app.exception_handler(HTTPException)
