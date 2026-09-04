@@ -230,6 +230,10 @@ def on_startup() -> None:
 
 @app.middleware("http")
 async def security_middleware(request: Request, call_next):
+    # Always let CORS preflight OPTIONS requests pass directly
+    if request.method.upper() == "OPTIONS":
+        return await call_next(request)
+
     if should_redirect_to_https(request, settings):
         return RedirectResponse(build_https_redirect_url(request), status_code=308)
 
@@ -266,6 +270,7 @@ async def security_middleware(request: Request, call_next):
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.frontend_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
