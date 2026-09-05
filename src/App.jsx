@@ -944,8 +944,14 @@ function App() {
               <a className="font-mono text-xs font-bold uppercase tracking-[0.28em] text-black/80 transition hover:text-black dark:text-white/70 dark:hover:text-white" href="#how-it-works">
                 HOW IT WORKS
               </a>
+              <a className="font-mono text-xs font-bold uppercase tracking-[0.28em] text-black/80 transition hover:text-black dark:text-white/70 dark:hover:text-white" href="#feedback">
+                FEEDBACK
+              </a>
               <a className="font-mono text-xs font-bold uppercase tracking-[0.28em] text-black/80 transition hover:text-black dark:text-white/70 dark:hover:text-white" href="#about">
                 ABOUT
+              </a>
+              <a className="font-mono text-xs font-bold uppercase tracking-[0.28em] text-black/80 transition hover:text-black dark:text-white/70 dark:hover:text-white" href="#privacy">
+                PRIVACY
               </a>
             </div>
             <button
@@ -1658,6 +1664,104 @@ function App() {
                       </span>
                     ))}
                   </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="privacy" className="hero-grid border-t border-black/10 bg-[#fbfaf6] py-14 dark:border-white/10 dark:bg-[#0b0b0b] sm:py-20">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="mb-8">
+              <span className="font-mono text-xs font-extrabold uppercase tracking-[0.3em] text-black/80 dark:text-white/80">
+                PRIVACY POLICY & DATA INTEGRITY
+              </span>
+            </div>
+
+            <div className="max-w-3xl">
+              <h2 className="text-3xl font-black uppercase tracking-tight text-black dark:text-white sm:text-4xl">
+                Transparent security. <span className="text-[#ef4444]">Zero compromise on user privacy.</span>
+              </h2>
+              <p className="mt-4 font-sans text-base leading-7 text-black/60 dark:text-white/60">
+                At SachLens, we believe verifying claims and detecting misinformation should never come at the expense of your personal data. We follow strict data-minimization, zero data monetization, and military-grade encryption standards.
+              </p>
+            </div>
+
+            <div className="mt-10 grid gap-6 md:grid-cols-2">
+              <div className="border border-black/15 bg-white p-7 dark:border-white/15 dark:bg-[#101010]">
+                <div className="flex items-center gap-3">
+                  <span className="font-mono text-sm font-bold text-[#ef4444]">01</span>
+                  <h3 className="font-mono text-sm font-black uppercase tracking-wider text-black dark:text-white">
+                    Data Encryption at Rest & In Transit
+                  </h3>
+                </div>
+                <p className="mt-3 font-sans text-sm leading-6 text-black/60 dark:text-white/60">
+                  User email addresses, authentication challenges, and session records are encrypted at rest using AES-256 GCM encryption. In transit, all API communication is strictly enforced over TLS 1.3 HTTPS with strong security headers (HSTS, CSP, and X-Content-Type-Options).
+                </p>
+              </div>
+
+              <div className="border border-black/15 bg-white p-7 dark:border-white/15 dark:bg-[#101010]">
+                <div className="flex items-center gap-3">
+                  <span className="font-mono text-sm font-bold text-[#ef4444]">02</span>
+                  <h3 className="font-mono text-sm font-black uppercase tracking-wider text-black dark:text-white">
+                    Ephemeral Media Processing
+                  </h3>
+                </div>
+                <p className="mt-3 font-sans text-sm leading-6 text-black/60 dark:text-white/60">
+                  Images and audio clips uploaded for analysis are processed strictly in temporary, isolated directories. All uploaded files are permanently deleted from our server storage immediately after OCR, transcription, and verification are finished.
+                </p>
+              </div>
+
+              <div className="border border-black/15 bg-white p-7 dark:border-white/15 dark:bg-[#101010]">
+                <div className="flex items-center gap-3">
+                  <span className="font-mono text-sm font-bold text-[#ef4444]">03</span>
+                  <h3 className="font-mono text-sm font-black uppercase tracking-wider text-black dark:text-white">
+                    Zero Data Selling or Monetization
+                  </h3>
+                </div>
+                <p className="mt-3 font-sans text-sm leading-6 text-black/60 dark:text-white/60">
+                  We never sell, rent, monetize, or share your verification queries, search history, or personal identifiers with third-party advertisers, data aggregators, or marketing networks. Your searches belong exclusively to you.
+                </p>
+              </div>
+
+              <div className="border border-black/15 bg-white p-7 dark:border-white/15 dark:bg-[#101010]">
+                <div className="flex items-center gap-3">
+                  <span className="font-mono text-sm font-bold text-[#ef4444]">04</span>
+                  <h3 className="font-mono text-sm font-black uppercase tracking-wider text-black dark:text-white">
+                    Authentication & Session Control
+                  </h3>
+                </div>
+                <p className="mt-3 font-sans text-sm leading-6 text-black/60 dark:text-white/60">
+                  Authentication uses secure single-use OTPs or official Google OAuth 2.0. Sessions are secured with HttpOnly SameSite cookies with sliding 48-hour inactivity expiry. You have the right to revoke active sessions and clear search history at any time.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-8 border border-black/15 bg-white p-7 dark:border-white/15 dark:bg-[#101010]">
+              <div className="font-mono text-xs font-bold uppercase tracking-[0.28em] text-black/45 dark:text-white/45">
+                USER RIGHTS & CONTACT
+              </div>
+              <div className="mt-4 grid gap-6 md:grid-cols-3">
+                <div>
+                  <h4 className="font-mono text-xs font-bold uppercase tracking-wider text-black dark:text-white">Data Retention</h4>
+                  <p className="mt-2 font-sans text-xs leading-5 text-black/60 dark:text-white/60">
+                    Search history is stored only for your personal authenticated reference and can be cleared by the user at any point.
+                  </p>
+                </div>
+                <div>
+                  <h4 className="font-mono text-xs font-bold uppercase tracking-wider text-black dark:text-white">Search Grounding</h4>
+                  <p className="mt-2 font-sans text-xs leading-5 text-black/60 dark:text-white/60">
+                    Live fact-check queries sent to search engines (Google / Tavily) are anonymous queries with no user identifiers attached.
+                  </p>
+                </div>
+                <div>
+                  <h4 className="font-mono text-xs font-bold uppercase tracking-wider text-black dark:text-white">Privacy Inquiries</h4>
+                  <p className="mt-2 font-sans text-xs leading-5 text-black/60 dark:text-white/60">
+                    For data export, account deletion, or privacy inquiries, contact{' '}
+                    <a href="mailto:bijendra2004yadav@gmail.com" className="font-mono text-[#ef4444] hover:underline">
+                      bijendra2004yadav@gmail.com
+                    </a>.
+                  </p>
                 </div>
               </div>
             </div>
